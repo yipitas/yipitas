@@ -1,13 +1,21 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
+import { useNavigate } from 'react-router-dom'
+import { supabase, supabaseAdmin } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner'
 import {
-  Search, Plus, Minus, Trash2, ShoppingCart, User, X, Check, Printer, Barcode,
+  Search, Plus, Minus, Trash2, ShoppingCart, User, X, Check, Printer, Barcode, Wallet,
 } from 'lucide-react'
+
+const hoyISO = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 export default function POS() {
   const { user } = useAuth()
+  const navigate = useNavigate()
+  const [cajaAbierta, setCajaAbierta] = useState(null) // null=cargando, false=sin caja, obj=abierta
   const [productos, setProductos] = useState([])
   const [clientes, setClientes] = useState([])
   const [search, setSearch] = useState('')
@@ -27,7 +35,18 @@ export default function POS() {
   const scanInputRef = useRef(null)
   const toastTimer = useRef(null)
 
-  useEffect(() => { loadProductos(); loadClientes() }, [])
+  useEffect(() => { verificarCaja() }, [])
+
+  async function verificarCaja() {
+    const { data } = await supabaseAdmin
+      .from('cajas')
+      .select('id, estado')
+      .eq('fecha', hoyISO())
+      .eq('estado', 'abierta')
+      .maybeSingle()
+    setCajaAbierta(data || false)
+    if (data) { loadProductos(); loadClientes() }
+  }
 
   useEffect(() => {
     if (scanInputRef.current) scanInputRef.current.focus()
@@ -180,6 +199,37 @@ export default function POS() {
   }
 
   const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
+
+  // ── Sin caja abierta ─────────────────────────────────────────
+  if (cajaAbierta === null) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
+      </div>
+    )
+  }
+
+  if (cajaAbierta === false) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center max-w-sm">
+          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Wallet className="w-8 h-8 text-amber-600" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Caja sin abrir</h2>
+          <p className="text-sm text-gray-500 mb-6">
+            Para registrar ventas primero tenés que abrir la caja del día.
+          </p>
+          <button
+            onClick={() => navigate('/caja')}
+            className="w-full bg-primary-600 hover:bg-primary-700 text-white py-3 rounded-xl font-semibold text-sm transition-colors"
+          >
+            Ir a Caja diaria
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   // ── Ticket ────────────────────────────────────────────────────
   if (ticketVenta) {
