@@ -52,7 +52,6 @@ export default function CargaMercaderia() {
     } else {
       setVariantesModal(data)
     }
-    setTimeout(() => scanInputRef.current?.focus(), 50)
   }, [agregarProducto])
 
   useBarcodeScanner(procesarCodigo)
@@ -67,7 +66,6 @@ export default function CargaMercaderia() {
   function seleccionarVariante(producto) {
     agregarProducto(producto)
     setVariantesModal(null)
-    setTimeout(() => scanInputRef.current?.focus(), 50)
   }
 
   function cambiarCantidad(id, delta) {
@@ -175,7 +173,6 @@ export default function CargaMercaderia() {
           type="text"
           placeholder="Listo para escanear... (o escribí un código y presioná Enter)"
           onKeyDown={handleScanInputKeyDown}
-          onBlur={() => setTimeout(() => scanInputRef.current?.focus(), 100)}
           className="flex-1 bg-transparent text-sm text-primary-900 placeholder-primary-400 outline-none"
         />
       </div>

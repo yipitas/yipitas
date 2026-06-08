@@ -74,8 +74,6 @@ export default function POS() {
       setVariantesModal(matches)
     }
 
-    // Refocus scan input
-    setTimeout(() => scanInputRef.current?.focus(), 50)
   }, [productos])
 
   useBarcodeScanner(procesarCodigoBarras)
@@ -118,7 +116,6 @@ export default function POS() {
     agregarAlCarrito(producto)
     showToast('ok', `${producto.nombre} (${producto.talla}) agregado`)
     setVariantesModal(null)
-    setTimeout(() => scanInputRef.current?.focus(), 50)
   }
 
   function cambiarCantidad(id, delta) {
@@ -235,7 +232,6 @@ export default function POS() {
               type="text"
               placeholder="Listo para escanear... (o escribí un código y presioná Enter)"
               onKeyDown={handleScanInputKeyDown}
-              onBlur={() => setTimeout(() => scanInputRef.current?.focus(), 100)}
               className="flex-1 bg-transparent text-sm text-primary-900 placeholder-primary-400 outline-none"
             />
           </div>
