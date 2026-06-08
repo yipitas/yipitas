@@ -15,6 +15,8 @@ export default function POS() {
   const [carrito, setCarrito] = useState([])
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
   const [metodoPago, setMetodoPago] = useState('efectivo')
+  const [cuotas, setCuotas] = useState(1)
+  const [interesPct, setInteresPct] = useState('')
   const [processing, setProcessing] = useState(false)
   const [ticketVenta, setTicketVenta] = useState(null)
   const [showClienteDropdown, setShowClienteDropdown] = useState(false)
@@ -129,6 +131,9 @@ export default function POS() {
   }
 
   const total = carrito.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const tieneInteres = metodoPago === 'crédito' || metodoPago === 'mercadopago'
+  const interesMonto = tieneInteres ? Math.round(total * (Number(interesPct) || 0) / 100) : 0
+  const montoNeto = total - interesMonto
 
   async function confirmarVenta() {
     if (carrito.length === 0) return
@@ -136,7 +141,16 @@ export default function POS() {
 
     const { data: venta, error } = await supabase
       .from('ventas')
-      .insert({ cliente_id: clienteSeleccionado?.id || null, user_id: user.id, total, metodo_pago: metodoPago })
+      .insert({
+        cliente_id: clienteSeleccionado?.id || null,
+        user_id: user.id,
+        total,
+        metodo_pago: metodoPago,
+        cuotas: metodoPago === 'crédito' ? cuotas : 1,
+        interes_porcentaje: tieneInteres ? Number(interesPct) || 0 : 0,
+        interes_monto: interesMonto,
+        monto_neto: montoNeto,
+      })
       .select().single()
 
     if (error) { alert('Error al registrar la venta'); setProcessing(false); return }
@@ -153,6 +167,8 @@ export default function POS() {
     setClienteSeleccionado(null)
     setClienteSearch('')
     setMetodoPago('efectivo')
+    setCuotas(1)
+    setInteresPct('')
     await loadProductos()
     setProcessing(false)
   }
@@ -366,16 +382,73 @@ export default function POS() {
 
         {/* Checkout */}
         <div className="p-4 border-t border-gray-100 space-y-3">
+          {/* Medios de pago */}
           <div>
-            <p className="text-xs text-gray-500 mb-1.5">Método de pago</p>
-            <div className="grid grid-cols-3 gap-1.5">
-              {['efectivo', 'débito', 'crédito'].map(m => (
-                <button key={m} onClick={() => setMetodoPago(m)} className={`py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${metodoPago === m ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                  {m}
+            <p className="text-xs text-gray-500 mb-1.5">Medio de pago</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { id: 'efectivo', label: 'Efectivo' },
+                { id: 'débito', label: 'Débito' },
+                { id: 'crédito', label: 'Crédito' },
+                { id: 'mercadopago', label: 'Mercado Pago' },
+              ].map(m => (
+                <button key={m.id} onClick={() => { setMetodoPago(m.id); setInteresPct(''); setCuotas(1) }}
+                  className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${metodoPago === m.id ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                  {m.label}
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Cuotas e interés (crédito) */}
+          {metodoPago === 'crédito' && (
+            <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 space-y-2">
+              <div>
+                <p className="text-xs text-orange-700 font-medium mb-1.5">Cuotas</p>
+                <div className="flex gap-1 flex-wrap">
+                  {[1, 3, 6, 12, 18, 24].map(c => (
+                    <button key={c} onClick={() => setCuotas(c)}
+                      className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${cuotas === c ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-200 hover:bg-orange-100'}`}>
+                      {c === 1 ? 'Cont.' : `${c}c`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-orange-700 font-medium whitespace-nowrap">Interés %</label>
+                <input type="number" value={interesPct} onChange={e => setInteresPct(e.target.value)} min="0" max="100" step="0.1"
+                  className="flex-1 border border-orange-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white"
+                  placeholder="0" />
+              </div>
+              {Number(interesPct) > 0 && (
+                <div className="text-xs text-orange-600 space-y-0.5">
+                  <div className="flex justify-between"><span>Bruto:</span><span className="font-semibold">{fmt(total)}</span></div>
+                  <div className="flex justify-between"><span>Interés ({interesPct}%):</span><span className="font-semibold text-red-500">- {fmt(interesMonto)}</span></div>
+                  <div className="flex justify-between border-t border-orange-200 pt-1 mt-1"><span className="font-bold">Neto local:</span><span className="font-bold">{fmt(montoNeto)}</span></div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Comisión (Mercado Pago) */}
+          {metodoPago === 'mercadopago' && (
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Comisión MP %</label>
+                <input type="number" value={interesPct} onChange={e => setInteresPct(e.target.value)} min="0" max="100" step="0.01"
+                  className="flex-1 border border-blue-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+                  placeholder="0" />
+              </div>
+              {Number(interesPct) > 0 && (
+                <div className="text-xs text-blue-600 space-y-0.5">
+                  <div className="flex justify-between"><span>Bruto:</span><span className="font-semibold">{fmt(total)}</span></div>
+                  <div className="flex justify-between"><span>Comisión ({interesPct}%):</span><span className="font-semibold text-red-500">- {fmt(interesMonto)}</span></div>
+                  <div className="flex justify-between border-t border-blue-200 pt-1 mt-1"><span className="font-bold">Neto local:</span><span className="font-bold">{fmt(montoNeto)}</span></div>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-between items-center">
             <span className="text-gray-500 text-sm">Total</span>
             <span className="text-xl font-bold text-gray-900">{fmt(total)}</span>

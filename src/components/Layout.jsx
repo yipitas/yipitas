@@ -9,6 +9,7 @@ import {
   LogOut,
   Shirt,
   PackagePlus,
+  Wallet,
 } from 'lucide-react'
 
 const navItems = [
@@ -16,6 +17,7 @@ const navItems = [
   { to: '/pos', icon: ShoppingCart, label: 'Venta' },
   { to: '/productos', icon: Package, label: 'Productos' },
   { to: '/carga', icon: PackagePlus, label: 'Carga mercadería' },
+  { to: '/caja', icon: Wallet, label: 'Caja diaria' },
   { to: '/clientes', icon: Users, label: 'Clientes' },
   { to: '/reportes', icon: BarChart3, label: 'Reportes' },
 ]

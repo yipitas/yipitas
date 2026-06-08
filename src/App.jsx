@@ -8,6 +8,7 @@ import Productos from './pages/Productos'
 import Clientes from './pages/Clientes'
 import Reportes from './pages/Reportes'
 import CargaMercaderia from './pages/CargaMercaderia'
+import CajaDiaria from './pages/CajaDiaria'
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
@@ -32,6 +33,7 @@ function AppRoutes() {
         <Route path="pos" element={<POS />} />
         <Route path="productos" element={<Productos />} />
         <Route path="carga" element={<CargaMercaderia />} />
+        <Route path="caja" element={<CajaDiaria />} />
         <Route path="clientes" element={<Clientes />} />
         <Route path="reportes" element={<Reportes />} />
       </Route>
