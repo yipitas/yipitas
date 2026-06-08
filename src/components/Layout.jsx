@@ -8,12 +8,14 @@ import {
   BarChart3,
   LogOut,
   Shirt,
+  PackagePlus,
 } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Inicio', end: true },
   { to: '/pos', icon: ShoppingCart, label: 'Venta' },
   { to: '/productos', icon: Package, label: 'Productos' },
+  { to: '/carga', icon: PackagePlus, label: 'Carga mercadería' },
   { to: '/clientes', icon: Users, label: 'Clientes' },
   { to: '/reportes', icon: BarChart3, label: 'Reportes' },
 ]
