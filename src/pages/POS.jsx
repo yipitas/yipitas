@@ -200,18 +200,27 @@ export default function POS() {
             <button
               key={p.id}
               onClick={() => agregarAlCarrito(p)}
-              className="bg-white border border-gray-200 rounded-xl p-4 text-left hover:border-primary-300 hover:shadow-sm transition-all group"
+              className="bg-white border border-gray-200 rounded-xl overflow-hidden text-left hover:border-primary-300 hover:shadow-sm transition-all group"
             >
-              <div className="flex items-start justify-between mb-2">
-                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-medium">{p.talla}</span>
-                <span className="text-xs text-gray-400">Stock: {p.stock}</span>
-              </div>
-              <p className="font-medium text-gray-900 text-sm mb-1 line-clamp-2">{p.nombre}</p>
-              {p.color && <p className="text-xs text-gray-400 mb-2">{p.color}</p>}
-              <p className="text-primary-600 font-bold">{fmt(p.precio)}</p>
-              <div className="mt-2 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <Plus className="w-3 h-3 text-primary-600" />
-                <span className="text-xs text-primary-600">Agregar</span>
+              {p.foto_url ? (
+                <img src={p.foto_url} alt={p.nombre} className="w-full h-28 object-cover" />
+              ) : (
+                <div className="w-full h-28 bg-gray-50 flex items-center justify-center text-gray-200">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                </div>
+              )}
+              <div className="p-3">
+                <div className="flex items-start justify-between mb-1">
+                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-medium">{p.talla}</span>
+                  <span className="text-xs text-gray-400">Stock: {p.stock}</span>
+                </div>
+                <p className="font-medium text-gray-900 text-sm mb-1 line-clamp-2">{p.nombre}</p>
+                {p.color && <p className="text-xs text-gray-400 mb-1">{p.color}</p>}
+                <p className="text-primary-600 font-bold">{fmt(p.precio)}</p>
+                <div className="mt-1.5 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Plus className="w-3 h-3 text-primary-600" />
+                  <span className="text-xs text-primary-600">Agregar</span>
+                </div>
               </div>
             </button>
           ))}
