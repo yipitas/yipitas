@@ -12,3 +12,37 @@ body {
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
   background-color: #f9fafb;
 }
+
+/* ── Estilos de impresión ── */
+#print-caja { display: none; }
+
+@media print {
+  @page { margin: 8mm; size: auto; }
+
+  body * { visibility: hidden !important; }
+
+  #print-caja {
+    display: block !important;
+    visibility: visible !important;
+    position: fixed;
+    inset: 0;
+    padding: 6mm;
+    background: white;
+    color: black;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  #print-caja * { visibility: visible !important; }
+
+  #print-caja .pr-center  { text-align: center; }
+  #print-caja .pr-bold    { font-weight: bold; }
+  #print-caja .pr-large   { font-size: 15px; }
+  #print-caja .pr-sep     { border: none; border-top: 1px dashed #000; margin: 4px 0; }
+  #print-caja .pr-sep2    { border: none; border-top: 2px solid #000; margin: 6px 0; }
+  #print-caja .pr-row     { display: flex; justify-content: space-between; }
+  #print-caja .pr-indent  { padding-left: 8px; }
+  #print-caja .pr-section { margin-top: 6px; }
+  #print-caja .pr-label   { font-weight: bold; text-transform: uppercase; font-size: 10px; letter-spacing: 0.05em; }
+}

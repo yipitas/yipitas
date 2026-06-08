@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   DollarSign, TrendingUp, TrendingDown, Plus, X, Check,
   Clock, CreditCard, Smartphone, Banknote, Wallet,
-  ChevronDown, ChevronUp, Calendar, AlertTriangle, History,
+  ChevronDown, ChevronUp, Calendar, AlertTriangle, History, Printer,
 } from 'lucide-react'
 
 const sum = (arr, key) => arr.reduce((s, r) => s + (Number(r[key]) || 0), 0)
@@ -247,13 +247,24 @@ export default function CajaDiaria() {
           <h2 className="text-xl font-bold text-gray-900">Caja Diaria</h2>
           <p className="text-sm text-gray-400 capitalize">{fmtFecha(hoyISO())}</p>
         </div>
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-          <button onClick={() => setTab('resumen')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === 'resumen' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-            Resumen del día
-          </button>
-          <button onClick={() => setTab('historial')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${tab === 'historial' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-            <History className="w-3.5 h-3.5" />Historial
-          </button>
+        <div className="flex items-center gap-3">
+          {caja && (
+            <button
+              onClick={() => window.print()}
+              className="flex items-center gap-2 border border-gray-300 text-gray-600 hover:bg-gray-50 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Printer className="w-4 h-4" />
+              Imprimir
+            </button>
+          )}
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            <button onClick={() => setTab('resumen')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === 'resumen' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              Resumen del día
+            </button>
+            <button onClick={() => setTab('historial')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${tab === 'historial' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              <History className="w-3.5 h-3.5" />Historial
+            </button>
+          </div>
         </div>
       </div>
 
@@ -688,6 +699,145 @@ export default function CajaDiaria() {
           fmtHora={fmtHora}
           fmtFecha={fmtFecha}
         />
+      )}
+
+      {/* ═══ Contenido imprimible (solo visible al imprimir) ═══ */}
+      {caja && (
+        <div id="print-caja">
+          {/* Encabezado */}
+          <div className="pr-center pr-section">
+            <div className="pr-bold pr-large">YIPITAS</div>
+            <div>Ropa de Chicos</div>
+            <hr className="pr-sep2" />
+            <div className="pr-bold">RESUMEN DE CAJA DIARIA</div>
+            <div>{fmtFecha(hoyISO())}</div>
+          </div>
+
+          <hr className="pr-sep" />
+
+          {/* Datos de apertura/cierre */}
+          <div className="pr-section">
+            <div className="pr-row"><span>Apertura:</span><span>{fmtHora(caja.hora_apertura)}</span></div>
+            {caja.hora_cierre && <div className="pr-row"><span>Cierre:</span><span>{fmtHora(caja.hora_cierre)}</span></div>}
+            <div className="pr-row"><span>Estado:</span><span>{caja.estado === 'abierta' ? 'ABIERTA' : 'CERRADA'}</span></div>
+          </div>
+
+          <hr className="pr-sep" />
+
+          {/* Ventas por medio de pago */}
+          <div className="pr-section">
+            <div className="pr-label">Ventas por medio de pago</div>
+
+            {efectivoTotal > 0 && (
+              <div className="pr-section">
+                <div className="pr-bold">Efectivo</div>
+                <div className="pr-row pr-indent"><span>{efectivoVentas.length} venta{efectivoVentas.length !== 1 ? 's' : ''}</span><span>{fmt(efectivoTotal)}</span></div>
+              </div>
+            )}
+
+            {debitoTotal > 0 && (
+              <div className="pr-section">
+                <div className="pr-bold">Débito</div>
+                <div className="pr-row pr-indent"><span>{debitoVentas.length} venta{debitoVentas.length !== 1 ? 's' : ''}</span><span>{fmt(debitoTotal)}</span></div>
+              </div>
+            )}
+
+            {creditoBruto > 0 && (
+              <div className="pr-section">
+                <div className="pr-bold">Crédito</div>
+                <div className="pr-row pr-indent"><span>{creditoVentas.length} venta{creditoVentas.length !== 1 ? 's' : ''} (bruto)</span><span>{fmt(creditoBruto)}</span></div>
+                {creditoInteres > 0 && <div className="pr-row pr-indent"><span>Interés ({creditoTasaEfectiva.toFixed(1)}%)</span><span>- {fmt(creditoInteres)}</span></div>}
+                <div className="pr-row pr-indent pr-bold"><span>Neto crédito</span><span>{fmt(creditoNeto)}</span></div>
+              </div>
+            )}
+
+            {mpBruto > 0 && (
+              <div className="pr-section">
+                <div className="pr-bold">Mercado Pago</div>
+                <div className="pr-row pr-indent"><span>{mpVentas.length} venta{mpVentas.length !== 1 ? 's' : ''} (bruto)</span><span>{fmt(mpBruto)}</span></div>
+                {mpInteres > 0 && <div className="pr-row pr-indent"><span>Comisión ({mpTasaEfectiva.toFixed(1)}%)</span><span>- {fmt(mpInteres)}</span></div>}
+                <div className="pr-row pr-indent pr-bold"><span>Neto MP</span><span>{fmt(mpNeto)}</span></div>
+              </div>
+            )}
+
+            {ventas.length === 0 && <div className="pr-indent">Sin ventas registradas</div>}
+          </div>
+
+          <hr className="pr-sep" />
+
+          {/* Totales de ventas */}
+          <div className="pr-section">
+            <div className="pr-row"><span>Total bruto del día</span><span>{fmt(totalBruto)}</span></div>
+            {totalIntereses > 0 && <div className="pr-row"><span>Total intereses/comis.</span><span>- {fmt(totalIntereses)}</span></div>}
+            <div className="pr-row pr-bold"><span>TOTAL NETO</span><span>{fmt(totalNeto)}</span></div>
+          </div>
+
+          {/* Movimientos manuales */}
+          {movimientos.length > 0 && (
+            <>
+              <hr className="pr-sep" />
+              <div className="pr-section">
+                <div className="pr-label">Movimientos manuales</div>
+                {movimientos.map(m => (
+                  <div key={m.id} className="pr-row pr-section">
+                    <span>{m.concepto} ({m.tipo === 'ingreso' ? 'Ingreso' : 'Egreso'})</span>
+                    <span>{m.tipo === 'ingreso' ? '+' : '-'} {fmt(m.monto)}</span>
+                  </div>
+                ))}
+                <div className="pr-row pr-bold"><span>Neto movimientos</span><span>{fmt(ingresosManual - egresosManual)}</span></div>
+              </div>
+            </>
+          )}
+
+          <hr className="pr-sep" />
+
+          {/* Efectivo en caja */}
+          <div className="pr-section">
+            <div className="pr-label">Efectivo en caja</div>
+            <div className="pr-row"><span>Saldo inicial</span><span>{fmt(caja.saldo_inicial)}</span></div>
+            {efectivoTotal > 0 && <div className="pr-row"><span>+ Ventas efectivo</span><span>{fmt(efectivoTotal)}</span></div>}
+            {ingresosManual > 0 && <div className="pr-row"><span>+ Ingresos manuales</span><span>{fmt(ingresosManual)}</span></div>}
+            {egresosManual > 0 && <div className="pr-row"><span>- Egresos manuales</span><span>{fmt(egresosManual)}</span></div>}
+            <div className="pr-row pr-bold"><span>= Saldo esperado</span><span>{fmt(saldoFinalEsperado)}</span></div>
+            {caja.saldo_final_real != null && (
+              <div className="pr-row pr-bold"><span>Efectivo contado</span><span>{fmt(caja.saldo_final_real)}</span></div>
+            )}
+            {caja.diferencia != null && (
+              <div className="pr-row pr-bold"><span>Diferencia</span><span>{caja.diferencia >= 0 ? '+' : ''}{fmt(caja.diferencia)}</span></div>
+            )}
+          </div>
+
+          {/* Listado de ventas individuales */}
+          {ventas.length > 0 && (
+            <>
+              <hr className="pr-sep" />
+              <div className="pr-section">
+                <div className="pr-label">Detalle de ventas</div>
+                {ventas.map((v, i) => {
+                  const labelMedio = { efectivo: 'Efectivo', 'débito': 'Débito', crédito: 'Crédito', mercadopago: 'Mercado Pago' }
+                  return (
+                    <div key={v.id} className="pr-section">
+                      <div className="pr-row">
+                        <span>#{i + 1} {v.clientes?.nombre || 'Consumidor final'}</span>
+                        <span>{fmtHora(v.created_at)}</span>
+                      </div>
+                      <div className="pr-row pr-indent">
+                        <span>{labelMedio[v.metodo_pago]}{v.metodo_pago === 'crédito' && v.cuotas > 1 ? ` ${v.cuotas}c` : ''}{v.interes_porcentaje > 0 ? ` (${v.interes_porcentaje}%)` : ''}</span>
+                        <span>{fmt(v.total)}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+
+          <hr className="pr-sep2" />
+          <div className="pr-center pr-section">
+            <div>Impreso: {new Date().toLocaleString('es-AR')}</div>
+            <div>yipitas.vercel.app</div>
+          </div>
+        </div>
       )}
     </div>
   )
