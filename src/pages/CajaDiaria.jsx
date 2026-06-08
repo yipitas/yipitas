@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, supabaseAdmin } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import {
   DollarSign, TrendingUp, TrendingDown, Plus, X, Check,
@@ -71,7 +71,7 @@ export default function CajaDiaria() {
     setLoading(true)
     const hoy = hoyISO()
 
-    const { data: cajaData } = await supabase
+    const { data: cajaData } = await supabaseAdmin
       .from('cajas')
       .select('*')
       .eq('fecha', hoy)
@@ -106,7 +106,7 @@ export default function CajaDiaria() {
   }
 
   async function loadMovimientos(cajaId) {
-    const { data } = await supabase
+    const { data } = await supabaseAdmin
       .from('caja_movimientos')
       .select('*')
       .eq('caja_id', cajaId)
@@ -115,7 +115,7 @@ export default function CajaDiaria() {
   }
 
   async function loadHistorial() {
-    const { data } = await supabase
+    const { data } = await supabaseAdmin
       .from('cajas')
       .select('*')
       .order('fecha', { ascending: false })
@@ -133,7 +133,7 @@ export default function CajaDiaria() {
         .gte('created_at', desde.toISOString())
         .lte('created_at', hasta.toISOString())
         .order('created_at', { ascending: false }),
-      supabase.from('caja_movimientos').select('*').eq('caja_id', cajaHist.id).order('created_at'),
+      supabaseAdmin.from('caja_movimientos').select('*').eq('caja_id', cajaHist.id).order('created_at'),
     ])
     setHistDetalle({ caja: cajaHist, ventas: ventasRes.data || [], movimientos: movRes.data || [] })
     setLoadingDetalle(false)
@@ -179,7 +179,7 @@ export default function CajaDiaria() {
   async function abrirCaja() {
     if (!saldoInicial && saldoInicial !== '0') return
     setAbriendo(true)
-    const { data, error } = await supabase.from('cajas').insert({
+    const { data, error } = await supabaseAdmin.from('cajas').insert({
       fecha: hoyISO(),
       user_id: user.id,
       saldo_inicial: Number(saldoInicial) || 0,
@@ -196,7 +196,7 @@ export default function CajaDiaria() {
     e.preventDefault()
     if (!movForm.concepto || !movForm.monto) return
     setSavingMov(true)
-    const { data } = await supabase.from('caja_movimientos').insert({
+    const { data } = await supabaseAdmin.from('caja_movimientos').insert({
       caja_id: caja.id,
       tipo: movForm.tipo,
       concepto: movForm.concepto,
@@ -212,7 +212,7 @@ export default function CajaDiaria() {
     setCerrando(true)
     const realNum = Number(saldoReal) || 0
     const diferencia = realNum - saldoFinalEsperado
-    await supabase.from('cajas').update({
+    await supabaseAdmin.from('cajas').update({
       estado: 'cerrada',
       hora_cierre: new Date().toISOString(),
       saldo_final_esperado: saldoFinalEsperado,
