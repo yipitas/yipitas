@@ -147,10 +147,10 @@ export default function POS() {
     setCarrito(prev => prev.filter(i => i.id !== id))
   }
 
-  const total = carrito.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const totalBase = carrito.reduce((s, i) => s + i.precio * i.cantidad, 0)
   const tieneInteres = metodoPago === 'crédito' || metodoPago === 'mercadopago'
-  const interesMonto = tieneInteres ? Math.round(total * (Number(interesPct) || 0) / 100) : 0
-  const montoNeto = total - interesMonto
+  const interesMonto = tieneInteres ? Math.round(totalBase * (Number(interesPct) || 0) / 100) : 0
+  const total = totalBase + interesMonto  // lo que el cliente paga
 
   async function confirmarVenta() {
     if (carrito.length === 0) return
@@ -163,7 +163,7 @@ export default function POS() {
       cuotas: metodoPago === 'crédito' ? cuotas : 1,
       interes_porcentaje: tieneInteres ? Number(interesPct) || 0 : 0,
       interes_monto: interesMonto,
-      monto_neto: montoNeto,
+      monto_neto: totalBase,
     }).select().single()
 
     if (error) { alert('Error al registrar la venta'); setProcessing(false); return }
@@ -501,9 +501,9 @@ export default function POS() {
               </div>
               {Number(interesPct) > 0 && (
                 <div className="text-xs text-orange-600 space-y-0.5">
-                  <div className="flex justify-between"><span>Bruto:</span><span className="font-semibold">{fmt(total)}</span></div>
-                  <div className="flex justify-between"><span>Interés ({interesPct}%):</span><span className="font-semibold text-red-500">- {fmt(interesMonto)}</span></div>
-                  <div className="flex justify-between border-t border-orange-200 pt-1 mt-1"><span className="font-bold">Neto local:</span><span className="font-bold">{fmt(montoNeto)}</span></div>
+                  <div className="flex justify-between"><span>Base:</span><span className="font-semibold">{fmt(totalBase)}</span></div>
+                  <div className="flex justify-between"><span>+ Interés ({interesPct}%):</span><span className="font-semibold text-orange-700">+ {fmt(interesMonto)}</span></div>
+                  <div className="flex justify-between border-t border-orange-200 pt-1 mt-1"><span className="font-bold">Total a cobrar:</span><span className="font-bold text-orange-800">{fmt(total)}</span></div>
                 </div>
               )}
             </div>
@@ -518,9 +518,9 @@ export default function POS() {
               </div>
               {Number(interesPct) > 0 && (
                 <div className="text-xs text-blue-600 space-y-0.5">
-                  <div className="flex justify-between"><span>Bruto:</span><span className="font-semibold">{fmt(total)}</span></div>
-                  <div className="flex justify-between"><span>Comisión ({interesPct}%):</span><span className="font-semibold text-red-500">- {fmt(interesMonto)}</span></div>
-                  <div className="flex justify-between border-t border-blue-200 pt-1 mt-1"><span className="font-bold">Neto local:</span><span className="font-bold">{fmt(montoNeto)}</span></div>
+                  <div className="flex justify-between"><span>Base:</span><span className="font-semibold">{fmt(totalBase)}</span></div>
+                  <div className="flex justify-between"><span>+ Recargo MP ({interesPct}%):</span><span className="font-semibold text-blue-700">+ {fmt(interesMonto)}</span></div>
+                  <div className="flex justify-between border-t border-blue-200 pt-1 mt-1"><span className="font-bold">Total a cobrar:</span><span className="font-bold text-blue-800">{fmt(total)}</span></div>
                 </div>
               )}
             </div>
