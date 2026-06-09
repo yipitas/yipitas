@@ -45,6 +45,7 @@ export default function CajaDiaria() {
   // Apertura
   const [saldoInicial, setSaldoInicial] = useState('')
   const [abriendo, setAbriendo] = useState(false)
+  const [abrirNueva, setAbrirNueva] = useState(false)
 
   // Movimiento manual
   const [showMovModal, setShowMovModal] = useState(false)
@@ -188,7 +189,10 @@ export default function CajaDiaria() {
     }).select().single()
     if (error) { alert('Error al abrir la caja: ' + error.message); setAbriendo(false); return }
     setCaja(data)
+    setVentas([])
+    setMovimientos([])
     setSaldoInicial('')
+    setAbrirNueva(false)
     setAbriendo(false)
   }
 
@@ -274,14 +278,16 @@ export default function CajaDiaria() {
         {tab === 'resumen' && (
           <div className="p-6 max-w-4xl">
 
-            {/* ── Sin caja abierta ── */}
-            {!caja && (
+            {/* ── Sin caja abierta / abrir nueva ── */}
+            {(!caja || abrirNueva) && (
               <div className="max-w-sm mx-auto mt-10">
                 <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center">
                   <div className="w-16 h-16 bg-primary-100 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Wallet className="w-8 h-8 text-primary-600" />
                   </div>
-                  <h3 className="text-lg font-bold text-gray-900 mb-1">Abrir caja</h3>
+                  <h3 className="text-lg font-bold text-gray-900 mb-1">
+                    {abrirNueva ? 'Abrir nueva caja' : 'Abrir caja'}
+                  </h3>
                   <p className="text-sm text-gray-400 mb-6">Ingresá el saldo inicial en efectivo</p>
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 text-left mb-1">Saldo inicial ($)</label>
@@ -300,6 +306,12 @@ export default function CajaDiaria() {
                     className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-primary-300 text-white py-3 rounded-xl font-semibold transition-colors">
                     {abriendo ? 'Abriendo...' : 'Abrir caja'}
                   </button>
+                  {abrirNueva && (
+                    <button onClick={() => { setAbrirNueva(false); setSaldoInicial('') }}
+                      className="w-full mt-2 text-sm text-gray-400 hover:text-gray-600 py-2 transition-colors">
+                      Cancelar
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -461,7 +473,7 @@ export default function CajaDiaria() {
                 )}
 
                 {/* Resumen si está cerrada */}
-                {caja.estado === 'cerrada' && (
+                {caja.estado === 'cerrada' && !abrirNueva && (
                   <div className="bg-gray-50 rounded-xl border border-gray-200 p-5">
                     <h3 className="font-semibold text-gray-900 mb-4">Resumen de cierre</h3>
                     <div className="space-y-2 text-sm">
@@ -477,6 +489,17 @@ export default function CajaDiaria() {
                       </div>
                     </div>
                   </div>
+                )}
+
+                {/* Botón abrir nueva caja (solo cuando está cerrada) */}
+                {caja.estado === 'cerrada' && !abrirNueva && (
+                  <button
+                    onClick={() => { setAbrirNueva(true); setSaldoInicial('') }}
+                    className="w-full mt-4 bg-primary-600 hover:bg-primary-700 text-white py-3.5 rounded-xl font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Wallet className="w-4 h-4" />
+                    Abrir nueva caja
+                  </button>
                 )}
               </>
             )}
