@@ -15,10 +15,11 @@ const hoyISO = () => {
 export default function POS() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [cajaAbierta, setCajaAbierta] = useState(null) // null=cargando, false=sin caja, obj=abierta
+  const [cajaAbierta, setCajaAbierta] = useState(null)
   const [productos, setProductos] = useState([])
   const [clientes, setClientes] = useState([])
   const [search, setSearch] = useState('')
+  const [showSearchDrop, setShowSearchDrop] = useState(false)
   const [clienteSearch, setClienteSearch] = useState('')
   const [carrito, setCarrito] = useState([])
   const [clienteSeleccionado, setClienteSeleccionado] = useState(null)
@@ -28,8 +29,8 @@ export default function POS() {
   const [processing, setProcessing] = useState(false)
   const [ticketVenta, setTicketVenta] = useState(null)
   const [showClienteDropdown, setShowClienteDropdown] = useState(false)
-  const [scanToast, setScanToast] = useState(null)       // { type, msg }
-  const [variantesModal, setVariantesModal] = useState(null) // [productos]
+  const [scanToast, setScanToast] = useState(null)
+  const [confirmModal, setConfirmModal] = useState(null) // { productos[], titulo }
   const [lastScan, setLastScan] = useState('')
   const searchRef = useRef(null)
   const scanInputRef = useRef(null)
@@ -39,11 +40,8 @@ export default function POS() {
 
   async function verificarCaja() {
     const { data } = await supabaseAdmin
-      .from('cajas')
-      .select('id, estado')
-      .eq('fecha', hoyISO())
-      .eq('estado', 'abierta')
-      .maybeSingle()
+      .from('cajas').select('id, estado')
+      .eq('fecha', hoyISO()).eq('estado', 'abierta').maybeSingle()
     setCajaAbierta(data || false)
     if (data) { loadProductos(); loadClientes() }
   }
@@ -62,60 +60,51 @@ export default function POS() {
     setClientes(data || [])
   }
 
-  // ── Lógica de código de barras ────────────────────────────────
   const showToast = (type, msg) => {
     clearTimeout(toastTimer.current)
     setScanToast({ type, msg })
     toastTimer.current = setTimeout(() => setScanToast(null), 3000)
   }
 
+  // ── Código de barras: siempre muestra modal de confirmación ───
   const procesarCodigoBarras = useCallback(async (code) => {
     setLastScan(code)
-    // Buscar en productos cargados primero (más rápido)
-    const matches = productos.filter(p => p.codigo === code)
+    let matches = productos.filter(p => p.codigo === code)
 
     if (matches.length === 0) {
-      // Consultar DB por si se agregó desde otro módulo
-      const { data } = await supabase.from('productos').select('*').eq('codigo', code).gt('stock', 0)
+      const { data } = await supabase.from('productos').select('*').eq('codigo', code).gte('stock', 0)
       if (!data || data.length === 0) {
         showToast('error', `Código "${code}" no encontrado`)
         return
       }
-      if (data.length === 1) {
-        agregarAlCarrito(data[0])
-        showToast('ok', `${data[0].nombre} (${data[0].talla}) agregado`)
-      } else {
-        setVariantesModal(data)
-      }
-    } else if (matches.length === 1) {
-      agregarAlCarrito(matches[0])
-      showToast('ok', `${matches[0].nombre} (${matches[0].talla}) agregado`)
-    } else {
-      // Mismo código → varias variantes → mostrar selector
-      setVariantesModal(matches)
+      matches = data
     }
 
+    // Siempre mostrar modal — 1 producto = confirmar, varios = elegir variante
+    setConfirmModal({
+      productos: matches,
+      titulo: matches.length === 1 ? 'Confirmar producto' : 'Seleccionar variante',
+    })
   }, [productos])
 
   useBarcodeScanner(procesarCodigoBarras)
 
-  // Input manual del scan bar (Enter en el campo)
   function handleScanInputKeyDown(e) {
     if (e.key === 'Enter') {
       const code = e.target.value.trim()
-      if (code) {
-        procesarCodigoBarras(code)
-        e.target.value = ''
-      }
+      if (code) { procesarCodigoBarras(code); e.target.value = '' }
     }
   }
 
-  const productosFiltrados = productos.filter(p =>
-    p.nombre.toLowerCase().includes(search.toLowerCase()) ||
-    p.categoria?.toLowerCase().includes(search.toLowerCase()) ||
-    p.color?.toLowerCase().includes(search.toLowerCase()) ||
-    p.talla?.toLowerCase().includes(search.toLowerCase())
-  )
+  // ── Búsqueda por nombre: dropdown ─────────────────────────────
+  const resultadosBusqueda = search.length >= 1
+    ? productos.filter(p =>
+        p.nombre.toLowerCase().includes(search.toLowerCase()) ||
+        p.categoria?.toLowerCase().includes(search.toLowerCase()) ||
+        p.color?.toLowerCase().includes(search.toLowerCase()) ||
+        p.talla?.toString().toLowerCase().includes(search.toLowerCase())
+      ).slice(0, 30)
+    : []
 
   const clientesFiltrados = clientes.filter(c =>
     c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) ||
@@ -134,10 +123,18 @@ export default function POS() {
     })
   }
 
-  function seleccionarVariante(producto) {
+  function seleccionarDesdeModal(producto) {
+    if (producto.stock <= 0) { showToast('error', `${producto.nombre} sin stock`); return }
     agregarAlCarrito(producto)
     showToast('ok', `${producto.nombre} (${producto.talla}) agregado`)
-    setVariantesModal(null)
+    setConfirmModal(null)
+  }
+
+  function seleccionarDesdeBusqueda(producto) {
+    agregarAlCarrito(producto)
+    showToast('ok', `${producto.nombre} (${producto.talla}) agregado`)
+    setSearch('')
+    setShowSearchDrop(false)
   }
 
   function cambiarCantidad(id, delta) {
@@ -158,20 +155,16 @@ export default function POS() {
   async function confirmarVenta() {
     if (carrito.length === 0) return
     setProcessing(true)
-
-    const { data: venta, error } = await supabase
-      .from('ventas')
-      .insert({
-        cliente_id: clienteSeleccionado?.id || null,
-        user_id: user.id,
-        total,
-        metodo_pago: metodoPago,
-        cuotas: metodoPago === 'crédito' ? cuotas : 1,
-        interes_porcentaje: tieneInteres ? Number(interesPct) || 0 : 0,
-        interes_monto: interesMonto,
-        monto_neto: montoNeto,
-      })
-      .select().single()
+    const { data: venta, error } = await supabase.from('ventas').insert({
+      cliente_id: clienteSeleccionado?.id || null,
+      user_id: user.id,
+      total,
+      metodo_pago: metodoPago,
+      cuotas: metodoPago === 'crédito' ? cuotas : 1,
+      interes_porcentaje: tieneInteres ? Number(interesPct) || 0 : 0,
+      interes_monto: interesMonto,
+      monto_neto: montoNeto,
+    }).select().single()
 
     if (error) { alert('Error al registrar la venta'); setProcessing(false); return }
 
@@ -181,7 +174,6 @@ export default function POS() {
     for (const item of carrito) {
       await supabase.from('productos').update({ stock: item.stock - item.cantidad }).eq('id', item.id)
     }
-
     setTicketVenta({ ...venta, items: carrito, cliente: clienteSeleccionado })
     setCarrito([])
     setClienteSeleccionado(null)
@@ -201,98 +193,86 @@ export default function POS() {
 
   const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
 
-  // ── Sin caja abierta ─────────────────────────────────────────
-  if (cajaAbierta === null) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600"></div>
-      </div>
-    )
-  }
+  // ── Sin caja ──────────────────────────────────────────────────
+  if (cajaAbierta === null) return (
+    <div className="flex items-center justify-center h-full">
+      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600" />
+    </div>
+  )
 
-  if (cajaAbierta === false) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center max-w-sm">
-          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Wallet className="w-8 h-8 text-amber-600" />
+  if (cajaAbierta === false) return (
+    <div className="flex items-center justify-center h-full">
+      <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center max-w-sm">
+        <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Wallet className="w-8 h-8 text-amber-600" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Caja sin abrir</h2>
+        <p className="text-sm text-gray-500 mb-6">Para registrar ventas primero tenés que abrir la caja del día.</p>
+        <button onClick={() => navigate('/caja')} className="w-full bg-primary-600 hover:bg-primary-700 text-white py-3 rounded-xl font-semibold text-sm transition-colors">
+          Ir a Caja diaria
+        </button>
+      </div>
+    </div>
+  )
+
+  // ── Ticket ────────────────────────────────────────────────────
+  if (ticketVenta) return (
+    <div className="p-6 max-w-lg mx-auto">
+      <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
+        <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+          <Check className="w-7 h-7 text-green-600" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 mb-1">¡Venta registrada!</h2>
+        <p className="text-gray-400 text-sm mb-6">Ticket #{ticketVenta.id?.slice(-6).toUpperCase()}</p>
+        <div className="text-left border-t border-dashed border-gray-200 pt-4 mb-4">
+          {ticketVenta.cliente && (
+            <p className="text-sm text-gray-500 mb-3">Cliente: <span className="text-gray-900 font-medium">{ticketVenta.cliente.nombre}</span></p>
+          )}
+          <div className="space-y-2 mb-4">
+            {ticketVenta.items.map(i => (
+              <div key={i.id} className="flex justify-between text-sm">
+                <span className="text-gray-700">{i.nombre} ({i.talla}) x{i.cantidad}</span>
+                <span className="font-medium">{fmt(i.precio * i.cantidad)}</span>
+              </div>
+            ))}
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Caja sin abrir</h2>
-          <p className="text-sm text-gray-500 mb-6">
-            Para registrar ventas primero tenés que abrir la caja del día.
-          </p>
-          <button
-            onClick={() => navigate('/caja')}
-            className="w-full bg-primary-600 hover:bg-primary-700 text-white py-3 rounded-xl font-semibold text-sm transition-colors"
-          >
-            Ir a Caja diaria
+          <div className="border-t border-dashed border-gray-200 pt-3 flex justify-between">
+            <span className="font-bold text-gray-900">Total</span>
+            <span className="font-bold text-xl text-primary-600">{fmt(ticketVenta.total)}</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-2 capitalize">Pago: {ticketVenta.metodo_pago}</p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+            <Printer className="w-4 h-4" />Imprimir
+          </button>
+          <button onClick={nuevaVenta} className="flex-1 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
+            Nueva venta
           </button>
         </div>
       </div>
-    )
-  }
-
-  // ── Ticket ────────────────────────────────────────────────────
-  if (ticketVenta) {
-    return (
-      <div className="p-6 max-w-lg mx-auto">
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 text-center">
-          <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Check className="w-7 h-7 text-green-600" />
-          </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-1">¡Venta registrada!</h2>
-          <p className="text-gray-400 text-sm mb-6">Ticket #{ticketVenta.id?.slice(-6).toUpperCase()}</p>
-          <div className="text-left border-t border-dashed border-gray-200 pt-4 mb-4">
-            {ticketVenta.cliente && (
-              <p className="text-sm text-gray-500 mb-3">Cliente: <span className="text-gray-900 font-medium">{ticketVenta.cliente.nombre}</span></p>
-            )}
-            <div className="space-y-2 mb-4">
-              {ticketVenta.items.map(i => (
-                <div key={i.id} className="flex justify-between text-sm">
-                  <span className="text-gray-700">{i.nombre} ({i.talla}) x{i.cantidad}</span>
-                  <span className="font-medium">{fmt(i.precio * i.cantidad)}</span>
-                </div>
-              ))}
-            </div>
-            <div className="border-t border-dashed border-gray-200 pt-3 flex justify-between">
-              <span className="font-bold text-gray-900">Total</span>
-              <span className="font-bold text-xl text-primary-600">{fmt(ticketVenta.total)}</span>
-            </div>
-            <p className="text-xs text-gray-400 mt-2 capitalize">Pago: {ticketVenta.metodo_pago}</p>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-              <Printer className="w-4 h-4" />Imprimir
-            </button>
-            <button onClick={nuevaVenta} className="flex-1 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors">
-              Nueva venta
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
+    </div>
+  )
 
   return (
     <div className="flex h-full relative">
       {/* Toast */}
       {scanToast && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 transition-all ${
-          scanToast.type === 'ok'
-            ? 'bg-green-600 text-white'
-            : 'bg-red-500 text-white'
+          scanToast.type === 'ok' ? 'bg-green-600 text-white' : 'bg-red-500 text-white'
         }`}>
           {scanToast.type === 'ok' ? <Check className="w-4 h-4" /> : <X className="w-4 h-4" />}
           {scanToast.msg}
         </div>
       )}
 
-      {/* ── Panel izquierdo: productos ── */}
+      {/* ── Panel izquierdo ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Barra de escaneo */}
         <div className="px-6 pt-5 pb-3">
           <h2 className="text-xl font-bold text-gray-900 mb-3">Punto de Venta</h2>
-          <div className="flex items-center gap-2 bg-primary-50 border-2 border-primary-200 rounded-xl px-4 py-2.5 focus-within:border-primary-400 transition-colors">
+
+          {/* Barra de escaneo */}
+          <div className="flex items-center gap-2 bg-primary-50 border-2 border-primary-200 rounded-xl px-4 py-2.5 focus-within:border-primary-400 transition-colors mb-3">
             <Barcode className="w-5 h-5 text-primary-500 flex-shrink-0" />
             <input
               ref={scanInputRef}
@@ -302,42 +282,78 @@ export default function POS() {
               className="flex-1 bg-transparent text-sm text-primary-900 placeholder-primary-400 outline-none"
             />
           </div>
-        </div>
 
-        {/* Búsqueda manual */}
-        <div className="px-6 pb-3">
+          {/* Búsqueda por nombre con dropdown */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 z-10" />
             <input
               ref={searchRef}
               type="text"
               placeholder="Buscar por nombre, talla, color..."
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setShowSearchDrop(true) }}
+              onFocus={() => setShowSearchDrop(true)}
+              onBlur={() => setTimeout(() => setShowSearchDrop(false), 150)}
               className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
+            {/* Dropdown de resultados */}
+            {showSearchDrop && search.length >= 1 && (
+              <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl z-40 mt-1 max-h-80 overflow-y-auto">
+                {resultadosBusqueda.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">Sin resultados para "{search}"</p>
+                ) : (
+                  <>
+                    <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 rounded-t-xl">
+                      <p className="text-xs text-gray-500 font-medium">{resultadosBusqueda.length} resultado{resultadosBusqueda.length !== 1 ? 's' : ''} — hacé click para agregar al carrito</p>
+                    </div>
+                    {resultadosBusqueda.map(p => {
+                      const sinStock = p.stock <= 0
+                      return (
+                        <button
+                          key={p.id}
+                          onMouseDown={() => !sinStock && seleccionarDesdeBusqueda(p)}
+                          className={`w-full flex items-center justify-between px-4 py-3 border-b border-gray-50 last:border-0 text-left transition-colors ${
+                            sinStock ? 'opacity-40 cursor-not-allowed' : 'hover:bg-primary-50'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{p.nombre}</p>
+                            <p className="text-xs text-gray-400 mt-0.5">
+                              Talla {p.talla}
+                              {p.color && ` · ${p.color}`}
+                              {' · '}Stock: {p.stock}
+                              {sinStock && <span className="text-red-400 font-medium"> · Sin stock</span>}
+                            </p>
+                          </div>
+                          <div className="ml-3 text-right flex-shrink-0">
+                            <p className="text-sm font-bold text-primary-600">{fmt(p.precio)}</p>
+                            {!sinStock && <p className="text-xs text-primary-400">+ agregar</p>}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Grid de productos */}
+        {/* Grid de productos (cuando no hay búsqueda activa) */}
         <div className="overflow-y-auto flex-1 px-6 pb-6 grid grid-cols-2 lg:grid-cols-3 gap-3 content-start">
-          {productosFiltrados.map(p => {
+          {(search.length === 0 ? productos : resultadosBusqueda).map(p => {
             const sinStock = p.stock <= 0
             return (
               <button
                 key={p.id}
-                onClick={() => agregarAlCarrito(p)}
+                onClick={() => !sinStock && agregarAlCarrito(p)}
                 disabled={sinStock}
                 className={`border rounded-xl overflow-hidden text-left transition-all group relative ${
-                  sinStock
-                    ? 'bg-gray-50 border-gray-200 opacity-60 cursor-not-allowed'
-                    : 'bg-white border-gray-200 hover:border-primary-300 hover:shadow-sm'
+                  sinStock ? 'bg-gray-50 border-gray-200 opacity-60 cursor-not-allowed' : 'bg-white border-gray-200 hover:border-primary-300 hover:shadow-sm'
                 }`}
               >
                 {sinStock && (
-                  <div className="absolute top-2 right-2 z-10 bg-gray-500 text-white text-xs font-semibold px-1.5 py-0.5 rounded">
-                    Sin stock
-                  </div>
+                  <div className="absolute top-2 right-2 z-10 bg-gray-500 text-white text-xs font-semibold px-1.5 py-0.5 rounded">Sin stock</div>
                 )}
                 {p.foto_url ? (
                   <img src={p.foto_url} alt={p.nombre} className="w-full h-28 object-cover" />
@@ -351,7 +367,7 @@ export default function POS() {
                 <div className="p-3">
                   <div className="flex items-start justify-between mb-1">
                     <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-medium">{p.talla}</span>
-                    <span className={`text-xs font-medium ${sinStock ? 'text-gray-400' : 'text-gray-400'}`}>Stock: {p.stock}</span>
+                    <span className="text-xs text-gray-400">Stock: {p.stock}</span>
                   </div>
                   <p className="font-medium text-gray-900 text-sm mb-1 line-clamp-2">{p.nombre}</p>
                   {p.color && <p className="text-xs text-gray-400 mb-1">{p.color}</p>}
@@ -366,8 +382,8 @@ export default function POS() {
               </button>
             )
           })}
-          {productosFiltrados.length === 0 && (
-            <div className="col-span-3 text-center text-gray-400 py-12 text-sm">No se encontraron productos</div>
+          {search.length === 0 && productos.length === 0 && (
+            <div className="col-span-3 text-center text-gray-400 py-12 text-sm">No hay productos cargados</div>
           )}
         </div>
       </div>
@@ -415,13 +431,13 @@ export default function POS() {
           </div>
         </div>
 
-        {/* Items */}
+        {/* Items carrito */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {carrito.length === 0 ? (
             <div className="text-center text-gray-400 text-sm py-8">
               <ShoppingCart className="w-8 h-8 mx-auto mb-2 opacity-30" />
               <p>El carrito está vacío</p>
-              <p className="text-xs mt-1 text-primary-400">Escaneá o tocá un producto</p>
+              <p className="text-xs mt-1 text-primary-400">Escaneá o buscá un producto</p>
             </div>
           ) : carrito.map(item => (
             <div key={item.id} className="flex items-start gap-2">
@@ -448,7 +464,6 @@ export default function POS() {
 
         {/* Checkout */}
         <div className="p-4 border-t border-gray-100 space-y-3">
-          {/* Medios de pago */}
           <div>
             <p className="text-xs text-gray-500 mb-1.5">Medio de pago</p>
             <div className="grid grid-cols-2 gap-1.5">
@@ -466,7 +481,6 @@ export default function POS() {
             </div>
           </div>
 
-          {/* Cuotas e interés (crédito) */}
           {metodoPago === 'crédito' && (
             <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 space-y-2">
               <div>
@@ -483,8 +497,7 @@ export default function POS() {
               <div className="flex items-center gap-2">
                 <label className="text-xs text-orange-700 font-medium whitespace-nowrap">Interés %</label>
                 <input type="number" value={interesPct} onChange={e => setInteresPct(e.target.value)} min="0" max="100" step="0.1"
-                  className="flex-1 border border-orange-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white"
-                  placeholder="0" />
+                  className="flex-1 border border-orange-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white" placeholder="0" />
               </div>
               {Number(interesPct) > 0 && (
                 <div className="text-xs text-orange-600 space-y-0.5">
@@ -496,14 +509,12 @@ export default function POS() {
             </div>
           )}
 
-          {/* Comisión (Mercado Pago) */}
           {metodoPago === 'mercadopago' && (
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-2">
               <div className="flex items-center gap-2">
                 <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Comisión MP %</label>
                 <input type="number" value={interesPct} onChange={e => setInteresPct(e.target.value)} min="0" max="100" step="0.01"
-                  className="flex-1 border border-blue-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
-                  placeholder="0" />
+                  className="flex-1 border border-blue-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white" placeholder="0" />
               </div>
               {Number(interesPct) > 0 && (
                 <div className="text-xs text-blue-600 space-y-0.5">
@@ -519,41 +530,51 @@ export default function POS() {
             <span className="text-gray-500 text-sm">Total</span>
             <span className="text-xl font-bold text-gray-900">{fmt(total)}</span>
           </div>
-          <button onClick={confirmarVenta} disabled={carrito.length === 0 || processing} className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-gray-200 disabled:text-gray-400 text-white py-3 rounded-xl font-semibold text-sm transition-colors">
+          <button onClick={confirmarVenta} disabled={carrito.length === 0 || processing}
+            className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-gray-200 disabled:text-gray-400 text-white py-3 rounded-xl font-semibold text-sm transition-colors">
             {processing ? 'Procesando...' : 'Confirmar venta'}
           </button>
         </div>
       </div>
 
-      {/* ── Modal selector de variantes ── */}
-      {variantesModal && (
+      {/* ── Modal confirmación / variantes (código de barras) ── */}
+      {confirmModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
-                <h3 className="font-semibold text-gray-900">Seleccionar variante</h3>
-                <p className="text-xs text-gray-400">Código: {lastScan}</p>
+                <h3 className="font-semibold text-gray-900">{confirmModal.titulo}</h3>
+                {lastScan && <p className="text-xs text-gray-400">Código: {lastScan}</p>}
               </div>
-              <button onClick={() => setVariantesModal(null)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setConfirmModal(null)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-4 space-y-2">
-              {variantesModal.map(p => (
+              {confirmModal.productos.map(p => (
                 <button
                   key={p.id}
-                  onClick={() => seleccionarVariante(p)}
-                  className="w-full flex items-center justify-between px-4 py-3 border border-gray-200 rounded-xl hover:border-primary-300 hover:bg-primary-50 transition-all text-left"
+                  onClick={() => seleccionarDesdeModal(p)}
+                  disabled={p.stock <= 0}
+                  className={`w-full flex items-center justify-between px-4 py-3 border rounded-xl transition-all text-left ${
+                    p.stock <= 0
+                      ? 'border-gray-100 opacity-50 cursor-not-allowed'
+                      : 'border-gray-200 hover:border-primary-400 hover:bg-primary-50'
+                  }`}
                 >
                   <div>
-                    <p className="font-medium text-gray-900 text-sm">{p.nombre}</p>
+                    <p className="font-semibold text-gray-900 text-sm">{p.nombre}</p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       Talla {p.talla}
                       {p.color && ` · ${p.color}`}
                       {' · '}Stock: {p.stock}
+                      {p.stock <= 0 && <span className="text-red-400"> · Sin stock</span>}
                     </p>
                   </div>
-                  <span className="font-bold text-primary-600 ml-3">{fmt(p.precio)}</span>
+                  <div className="text-right ml-3 flex-shrink-0">
+                    <p className="font-bold text-primary-600">{fmt(p.precio)}</p>
+                    {p.stock > 0 && <p className="text-xs text-primary-400 mt-0.5">Agregar →</p>}
+                  </div>
                 </button>
               ))}
             </div>
