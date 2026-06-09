@@ -45,9 +45,10 @@ export default function Productos() {
   }
 
   const filtered = productos.filter(p => {
-    const matchSearch = p.nombre.toLowerCase().includes(search.toLowerCase()) ||
-      p.color?.toLowerCase().includes(search.toLowerCase()) ||
-      p.codigo?.toLowerCase().includes(search.toLowerCase())
+    const q = search.toLowerCase()
+    const matchSearch = p.nombre.toLowerCase().includes(q) ||
+      p.color?.toLowerCase().includes(q) ||
+      p.codigo?.toLowerCase() === q
     const matchCat = filterCat === 'Todos' || p.categoria === filterCat
     return matchSearch && matchCat
   })
