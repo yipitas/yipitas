@@ -83,19 +83,19 @@ export default function CajaDiaria() {
     setCaja(cajaData)
 
     if (cajaData) {
-      await Promise.all([loadVentasHoy(hoy), loadMovimientos(cajaData.id)])
+      await Promise.all([loadVentasHoy(cajaData), loadMovimientos(cajaData.id)])
     }
     setLoading(false)
   }
 
-  async function loadVentasHoy(fecha) {
-    const desde = new Date(fecha + 'T00:00:00')
-    const hasta = new Date(fecha + 'T23:59:59')
+  async function loadVentasHoy(cajaData) {
+    const desde = cajaData.hora_apertura
+    const hasta = cajaData.hora_cierre || new Date().toISOString()
     const { data } = await supabase
       .from('ventas')
       .select('*, clientes(nombre), venta_items(cantidad, precio_unitario, productos(nombre, talla))')
-      .gte('created_at', desde.toISOString())
-      .lte('created_at', hasta.toISOString())
+      .gte('created_at', desde)
+      .lte('created_at', hasta)
       .order('created_at', { ascending: false })
     setVentas(data || [])
 
@@ -126,13 +126,13 @@ export default function CajaDiaria() {
 
   async function loadDetalleHistorial(cajaHist) {
     setLoadingDetalle(true)
-    const desde = new Date(cajaHist.fecha + 'T00:00:00')
-    const hasta = new Date(cajaHist.fecha + 'T23:59:59')
+    const desde = cajaHist.hora_apertura
+    const hasta = cajaHist.hora_cierre || new Date().toISOString()
     const [ventasRes, movRes] = await Promise.all([
       supabase.from('ventas')
         .select('*, clientes(nombre), venta_items(cantidad, precio_unitario, productos(nombre, talla))')
-        .gte('created_at', desde.toISOString())
-        .lte('created_at', hasta.toISOString())
+        .gte('created_at', desde)
+        .lte('created_at', hasta)
         .order('created_at', { ascending: false }),
       supabaseAdmin.from('caja_movimientos').select('*').eq('caja_id', cajaHist.id).order('created_at'),
     ])

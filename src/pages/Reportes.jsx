@@ -63,6 +63,19 @@ export default function Reportes() {
   const totalVentas = ventas.reduce((s, v) => s + v.total, 0)
   const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
   const fmtFecha = (d) => new Date(d).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const fmtDia = (d) => new Date(d + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })
+
+  const ventasPorDia = (() => {
+    const byDay = {}
+    ventas.forEach(v => {
+      const day = v.created_at.slice(0, 10)
+      if (!byDay[day]) byDay[day] = { total: 0, count: 0, porMetodo: {} }
+      byDay[day].total += v.total
+      byDay[day].count += 1
+      byDay[day].porMetodo[v.metodo_pago] = (byDay[day].porMetodo[v.metodo_pago] || 0) + v.total
+    })
+    return Object.entries(byDay).sort((a, b) => b[0].localeCompare(a[0]))
+  })()
 
   // Ventas por método de pago
   const porMetodo = ventas.reduce((acc, v) => {
@@ -184,6 +197,35 @@ export default function Reportes() {
                     <span className={`ml-2 text-sm font-bold flex-shrink-0 ${p.stock === 0 ? 'text-red-600' : 'text-orange-500'}`}>
                       {p.stock === 0 ? 'AGOTADO' : `${p.stock} ud`}
                     </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Resumen por día */}
+          {ventasPorDia.length > 1 && (
+            <div className="bg-white rounded-xl border border-gray-200">
+              <div className="px-5 py-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-900">Resumen por día</h3>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {ventasPorDia.map(([day, data]) => (
+                  <div key={day} className="px-5 py-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900 capitalize">{fmtDia(day)}</p>
+                        <p className="text-xs text-gray-400">{data.count} venta{data.count !== 1 ? 's' : ''}</p>
+                      </div>
+                      <p className="text-base font-bold text-gray-900">{fmt(data.total)}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {Object.entries(data.porMetodo).map(([m, monto]) => (
+                        <span key={m} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded capitalize">
+                          {m}: {fmt(monto)}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>

@@ -26,6 +26,7 @@ export default function POS() {
   const [metodoPago, setMetodoPago] = useState('efectivo')
   const [cuotas, setCuotas] = useState(1)
   const [interesPct, setInteresPct] = useState('')
+  const [descuentoPct, setDescuentoPct] = useState('')
   const [processing, setProcessing] = useState(false)
   const [ticketVenta, setTicketVenta] = useState(null)
   const [showClienteDropdown, setShowClienteDropdown] = useState(false)
@@ -80,11 +81,14 @@ export default function POS() {
       matches = data
     }
 
-    // Siempre mostrar modal — 1 producto = confirmar, varios = elegir variante
-    setConfirmModal({
-      productos: matches,
-      titulo: matches.length === 1 ? 'Confirmar producto' : 'Seleccionar variante',
-    })
+    if (matches.length === 1) {
+      const p = matches[0]
+      if (p.stock <= 0) { showToast('error', `${p.nombre} sin stock`); return }
+      agregarAlCarrito(p)
+      showToast('ok', `${p.nombre} (${p.talla}) agregado`)
+    } else {
+      setConfirmModal({ productos: matches, titulo: 'Seleccionar variante' })
+    }
   }, [productos])
 
   useBarcodeScanner(procesarCodigoBarras)
@@ -148,9 +152,11 @@ export default function POS() {
   }
 
   const totalBase = carrito.reduce((s, i) => s + i.precio * i.cantidad, 0)
+  const descuentoMonto = Math.round(totalBase * (Number(descuentoPct) || 0) / 100)
+  const totalConDescuento = totalBase - descuentoMonto
   const tieneInteres = metodoPago === 'crédito' || metodoPago === 'mercadopago'
-  const interesMonto = tieneInteres ? Math.round(totalBase * (Number(interesPct) || 0) / 100) : 0
-  const total = totalBase + interesMonto  // lo que el cliente paga
+  const interesMonto = tieneInteres ? Math.round(totalConDescuento * (Number(interesPct) || 0) / 100) : 0
+  const total = totalConDescuento + interesMonto
 
   async function confirmarVenta() {
     if (carrito.length === 0) return
@@ -163,7 +169,7 @@ export default function POS() {
       cuotas: metodoPago === 'crédito' ? cuotas : 1,
       interes_porcentaje: tieneInteres ? Number(interesPct) || 0 : 0,
       interes_monto: interesMonto,
-      monto_neto: totalBase,
+      monto_neto: totalConDescuento,
     }).select().single()
 
     if (error) { alert('Error al registrar la venta'); setProcessing(false); return }
@@ -181,6 +187,7 @@ export default function POS() {
     setMetodoPago('efectivo')
     setCuotas(1)
     setInteresPct('')
+    setDescuentoPct('')
     await loadProductos()
     setProcessing(false)
   }
@@ -188,6 +195,7 @@ export default function POS() {
   function nuevaVenta() {
     setTicketVenta(null)
     setSearch('')
+    setDescuentoPct('')
     setTimeout(() => scanInputRef.current?.focus(), 100)
   }
 
@@ -255,7 +263,7 @@ export default function POS() {
   )
 
   return (
-    <div className="flex h-full relative">
+    <div className="flex flex-col h-full relative">
       {/* Toast */}
       {scanToast && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 transition-all ${
@@ -266,25 +274,25 @@ export default function POS() {
         </div>
       )}
 
-      {/* ── Panel izquierdo ── */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="px-6 pt-5 pb-3">
-          <h2 className="text-xl font-bold text-gray-900 mb-3">Punto de Venta</h2>
+      {/* ── Panel superior 30%: escaneo + búsqueda + productos ── */}
+      <div className="h-[30%] flex flex-col overflow-hidden border-b border-gray-200">
+        <div className="px-4 pt-3 pb-2 flex items-center gap-3 flex-shrink-0">
+          <h2 className="text-base font-bold text-gray-900 flex-shrink-0">Punto de Venta</h2>
 
           {/* Barra de escaneo */}
-          <div className="flex items-center gap-2 bg-primary-50 border-2 border-primary-200 rounded-xl px-4 py-2.5 focus-within:border-primary-400 transition-colors mb-3">
-            <Barcode className="w-5 h-5 text-primary-500 flex-shrink-0" />
+          <div className="flex items-center gap-2 bg-primary-50 border-2 border-primary-200 rounded-xl px-3 py-2 focus-within:border-primary-400 transition-colors flex-1">
+            <Barcode className="w-4 h-4 text-primary-500 flex-shrink-0" />
             <input
               ref={scanInputRef}
               type="text"
-              placeholder="Listo para escanear... (o escribí un código y presioná Enter)"
+              placeholder="Escanear código de barras..."
               onKeyDown={handleScanInputKeyDown}
               className="flex-1 bg-transparent text-sm text-primary-900 placeholder-primary-400 outline-none"
             />
           </div>
 
           {/* Búsqueda por nombre con dropdown */}
-          <div className="relative">
+          <div className="relative w-64 flex-shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 z-10" />
             <input
               ref={searchRef}
@@ -294,17 +302,16 @@ export default function POS() {
               onChange={e => { setSearch(e.target.value); setShowSearchDrop(true) }}
               onFocus={() => setShowSearchDrop(true)}
               onBlur={() => setTimeout(() => setShowSearchDrop(false), 150)}
-              className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
-            {/* Dropdown de resultados */}
             {showSearchDrop && search.length >= 1 && (
-              <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl z-40 mt-1 max-h-80 overflow-y-auto">
+              <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl z-40 mt-1 max-h-64 overflow-y-auto">
                 {resultadosBusqueda.length === 0 ? (
                   <p className="text-sm text-gray-400 text-center py-4">Sin resultados para "{search}"</p>
                 ) : (
                   <>
                     <div className="px-3 py-2 border-b border-gray-100 bg-gray-50 rounded-t-xl">
-                      <p className="text-xs text-gray-500 font-medium">{resultadosBusqueda.length} resultado{resultadosBusqueda.length !== 1 ? 's' : ''} — hacé click para agregar al carrito</p>
+                      <p className="text-xs text-gray-500 font-medium">{resultadosBusqueda.length} resultado{resultadosBusqueda.length !== 1 ? 's' : ''} — click para agregar</p>
                     </div>
                     {resultadosBusqueda.map(p => {
                       const sinStock = p.stock <= 0
@@ -319,9 +326,7 @@ export default function POS() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-gray-900 truncate">{p.nombre}</p>
                             <p className="text-xs text-gray-400 mt-0.5">
-                              Talla {p.talla}
-                              {p.color && ` · ${p.color}`}
-                              {' · '}Stock: {p.stock}
+                              Talla {p.talla}{p.color && ` · ${p.color}`}{' · '}Stock: {p.stock}
                               {sinStock && <span className="text-red-400 font-medium"> · Sin stock</span>}
                             </p>
                           </div>
@@ -339,8 +344,8 @@ export default function POS() {
           </div>
         </div>
 
-        {/* Grid de productos (cuando no hay búsqueda activa) */}
-        <div className="overflow-y-auto flex-1 px-6 pb-6 grid grid-cols-2 lg:grid-cols-3 gap-3 content-start">
+        {/* Grid de productos */}
+        <div className="overflow-y-auto flex-1 px-4 pb-2 grid grid-cols-5 xl:grid-cols-7 gap-2 content-start">
           {(search.length === 0 ? productos : resultadosBusqueda).map(p => {
             const sinStock = p.stock <= 0
             return (
@@ -348,196 +353,215 @@ export default function POS() {
                 key={p.id}
                 onClick={() => !sinStock && agregarAlCarrito(p)}
                 disabled={sinStock}
-                className={`border rounded-xl overflow-hidden text-left transition-all group relative ${
+                className={`border rounded-lg overflow-hidden text-left transition-all group relative ${
                   sinStock ? 'bg-gray-50 border-gray-200 opacity-60 cursor-not-allowed' : 'bg-white border-gray-200 hover:border-primary-300 hover:shadow-sm'
                 }`}
               >
                 {sinStock && (
-                  <div className="absolute top-2 right-2 z-10 bg-gray-500 text-white text-xs font-semibold px-1.5 py-0.5 rounded">Sin stock</div>
+                  <div className="absolute top-1 right-1 z-10 bg-gray-500 text-white text-xs font-semibold px-1 py-0.5 rounded text-[10px]">Sin stock</div>
                 )}
                 {p.foto_url ? (
-                  <img src={p.foto_url} alt={p.nombre} className="w-full h-28 object-cover" />
+                  <img src={p.foto_url} alt={p.nombre} className="w-full h-16 object-cover" />
                 ) : (
-                  <div className="w-full h-28 bg-gray-50 flex items-center justify-center text-gray-200">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-full h-16 bg-gray-50 flex items-center justify-center text-gray-200">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                   </div>
                 )}
-                <div className="p-3">
-                  <div className="flex items-start justify-between mb-1">
-                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-medium">{p.talla}</span>
-                    <span className="text-xs text-gray-400">Stock: {p.stock}</span>
+                <div className="p-1.5">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[10px] bg-gray-100 text-gray-600 px-1 rounded font-medium">{p.talla}</span>
+                    <span className="text-[10px] text-gray-400">{p.stock}</span>
                   </div>
-                  <p className="font-medium text-gray-900 text-sm mb-1 line-clamp-2">{p.nombre}</p>
-                  {p.color && <p className="text-xs text-gray-400 mb-1">{p.color}</p>}
-                  <p className={`font-bold ${sinStock ? 'text-gray-400' : 'text-primary-600'}`}>{fmt(p.precio)}</p>
-                  {!sinStock && (
-                    <div className="mt-1.5 flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Plus className="w-3 h-3 text-primary-600" />
-                      <span className="text-xs text-primary-600">Agregar</span>
-                    </div>
-                  )}
+                  <p className="font-medium text-gray-900 text-[11px] line-clamp-1">{p.nombre}</p>
+                  <p className={`text-xs font-bold ${sinStock ? 'text-gray-400' : 'text-primary-600'}`}>{fmt(p.precio)}</p>
                 </div>
               </button>
             )
           })}
           {search.length === 0 && productos.length === 0 && (
-            <div className="col-span-3 text-center text-gray-400 py-12 text-sm">No hay productos cargados</div>
+            <div className="col-span-5 text-center text-gray-400 py-8 text-sm">No hay productos cargados</div>
           )}
         </div>
       </div>
 
-      {/* ── Panel derecho: carrito ── */}
-      <div className="w-80 border-l border-gray-200 bg-white flex flex-col">
-        <div className="px-4 py-4 border-b border-gray-100">
-          <div className="flex items-center gap-2 mb-3">
+      {/* ── Panel inferior 70%: carrito ── */}
+      <div className="flex-1 flex overflow-hidden bg-white">
+
+        {/* Items del carrito */}
+        <div className="flex-1 flex flex-col border-r border-gray-200 overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2 flex-shrink-0">
             <ShoppingCart className="w-4 h-4 text-gray-500" />
             <span className="font-semibold text-gray-900 text-sm">Carrito ({carrito.length})</span>
           </div>
-          {/* Cliente */}
-          <div className="relative">
-            <div className="flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2">
-              <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              {clienteSeleccionado ? (
-                <div className="flex items-center justify-between flex-1 min-w-0">
-                  <span className="text-sm text-gray-900 truncate">{clienteSeleccionado.nombre}</span>
-                  <button onClick={() => { setClienteSeleccionado(null); setClienteSearch('') }} className="text-gray-400 hover:text-gray-600 ml-1">
-                    <X className="w-3 h-3" />
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {carrito.length === 0 ? (
+              <div className="text-center text-gray-400 text-sm py-10">
+                <ShoppingCart className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p>El carrito está vacío</p>
+                <p className="text-xs mt-1 text-primary-400">Escaneá o buscá un producto arriba</p>
+              </div>
+            ) : carrito.map(item => (
+              <div key={item.id} className="flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-0">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{item.nombre}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{item.talla}{item.color && ` · ${item.color}`}</p>
+                  <p className="text-base font-bold text-primary-600 mt-0.5">{fmt(item.precio)}</p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => cambiarCantidad(item.id, -1)} className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center transition-colors">
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="w-8 text-center text-sm font-bold">{item.cantidad}</span>
+                  <button onClick={() => cambiarCantidad(item.id, 1)} disabled={item.cantidad >= item.stock} className="w-7 h-7 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center transition-colors disabled:opacity-40">
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => quitarItem(item.id)} className="w-7 h-7 text-gray-300 hover:text-red-500 flex items-center justify-center transition-colors ml-1">
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-              ) : (
-                <input
-                  type="text"
-                  placeholder="Buscar cliente..."
-                  value={clienteSearch}
-                  onChange={e => { setClienteSearch(e.target.value); setShowClienteDropdown(true) }}
-                  onFocus={() => setShowClienteDropdown(true)}
-                  onBlur={() => setTimeout(() => setShowClienteDropdown(false), 150)}
-                  className="flex-1 text-sm outline-none bg-transparent"
-                />
-              )}
-            </div>
-            {showClienteDropdown && clienteSearch && clientesFiltrados.length > 0 && !clienteSeleccionado && (
-              <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-10 mt-1">
-                {clientesFiltrados.map(c => (
-                  <button key={c.id} onMouseDown={() => { setClienteSeleccionado(c); setClienteSearch(''); setShowClienteDropdown(false) }} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg">
-                    <p className="font-medium text-gray-900">{c.nombre}</p>
-                    {c.telefono && <p className="text-xs text-gray-400">{c.telefono}</p>}
-                  </button>
-                ))}
+                <div className="text-right flex-shrink-0 w-24">
+                  <p className="text-base font-bold text-gray-900">{fmt(item.precio * item.cantidad)}</p>
+                  {item.cantidad > 1 && <p className="text-xs text-gray-400">x{item.cantidad}</p>}
+                </div>
               </div>
-            )}
+            ))}
           </div>
         </div>
 
-        {/* Items carrito */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {carrito.length === 0 ? (
-            <div className="text-center text-gray-400 text-sm py-8">
-              <ShoppingCart className="w-8 h-8 mx-auto mb-2 opacity-30" />
-              <p>El carrito está vacío</p>
-              <p className="text-xs mt-1 text-primary-400">Escaneá o buscá un producto</p>
-            </div>
-          ) : carrito.map(item => (
-            <div key={item.id} className="flex items-start gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{item.nombre}</p>
-                <p className="text-xs text-gray-400">{item.talla} {item.color && `· ${item.color}`}</p>
-                <p className="text-xs text-primary-600 font-semibold mt-0.5">{fmt(item.precio)}</p>
+        {/* Panel de checkout */}
+        <div className="w-1/2 flex flex-col border-l border-gray-100 flex-shrink-0">
+          {/* Cliente */}
+          <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0">
+            <div className="relative">
+              <div className="flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2">
+                <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                {clienteSeleccionado ? (
+                  <div className="flex items-center justify-between flex-1 min-w-0">
+                    <span className="text-sm text-gray-900 truncate">{clienteSeleccionado.nombre}</span>
+                    <button onClick={() => { setClienteSeleccionado(null); setClienteSearch('') }} className="text-gray-400 hover:text-gray-600 ml-1">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="Buscar cliente..."
+                    value={clienteSearch}
+                    onChange={e => { setClienteSearch(e.target.value); setShowClienteDropdown(true) }}
+                    onFocus={() => setShowClienteDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowClienteDropdown(false), 150)}
+                    className="flex-1 text-sm outline-none bg-transparent"
+                  />
+                )}
               </div>
-              <div className="flex items-center gap-1">
-                <button onClick={() => cambiarCantidad(item.id, -1)} className="w-6 h-6 bg-gray-100 hover:bg-gray-200 rounded flex items-center justify-center transition-colors">
-                  <Minus className="w-3 h-3" />
-                </button>
-                <span className="w-6 text-center text-sm font-medium">{item.cantidad}</span>
-                <button onClick={() => cambiarCantidad(item.id, 1)} disabled={item.cantidad >= item.stock} className="w-6 h-6 bg-gray-100 hover:bg-gray-200 rounded flex items-center justify-center transition-colors disabled:opacity-40">
-                  <Plus className="w-3 h-3" />
-                </button>
-                <button onClick={() => quitarItem(item.id)} className="w-6 h-6 text-gray-300 hover:text-red-500 ml-1 flex items-center justify-center transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Checkout */}
-        <div className="p-4 border-t border-gray-100 space-y-3">
-          <div>
-            <p className="text-xs text-gray-500 mb-1.5">Medio de pago</p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {[
-                { id: 'efectivo', label: 'Efectivo' },
-                { id: 'débito', label: 'Débito' },
-                { id: 'crédito', label: 'Crédito' },
-                { id: 'mercadopago', label: 'Mercado Pago' },
-              ].map(m => (
-                <button key={m.id} onClick={() => { setMetodoPago(m.id); setInteresPct(''); setCuotas(1) }}
-                  className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${metodoPago === m.id ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {metodoPago === 'crédito' && (
-            <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 space-y-2">
-              <div>
-                <p className="text-xs text-orange-700 font-medium mb-1.5">Cuotas</p>
-                <div className="flex gap-1 flex-wrap">
-                  {[1, 3, 6, 12, 18, 24].map(c => (
-                    <button key={c} onClick={() => setCuotas(c)}
-                      className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${cuotas === c ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-200 hover:bg-orange-100'}`}>
-                      {c === 1 ? 'Cont.' : `${c}c`}
+              {showClienteDropdown && clienteSearch && clientesFiltrados.length > 0 && !clienteSeleccionado && (
+                <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-10 mt-1">
+                  {clientesFiltrados.map(c => (
+                    <button key={c.id} onMouseDown={() => { setClienteSeleccionado(c); setClienteSearch(''); setShowClienteDropdown(false) }} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg">
+                      <p className="font-medium text-gray-900">{c.nombre}</p>
+                      {c.telefono && <p className="text-xs text-gray-400">{c.telefono}</p>}
                     </button>
                   ))}
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-orange-700 font-medium whitespace-nowrap">Interés %</label>
-                <input type="number" value={interesPct} onChange={e => setInteresPct(e.target.value)} min="0" max="100" step="0.1"
-                  className="flex-1 border border-orange-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white" placeholder="0" />
-              </div>
-              {Number(interesPct) > 0 && (
-                <div className="text-xs text-orange-600 space-y-0.5">
-                  <div className="flex justify-between"><span>Base:</span><span className="font-semibold">{fmt(totalBase)}</span></div>
-                  <div className="flex justify-between"><span>+ Interés ({interesPct}%):</span><span className="font-semibold text-orange-700">+ {fmt(interesMonto)}</span></div>
-                  <div className="flex justify-between border-t border-orange-200 pt-1 mt-1"><span className="font-bold">Total a cobrar:</span><span className="font-bold text-orange-800">{fmt(total)}</span></div>
-                </div>
               )}
             </div>
-          )}
-
-          {metodoPago === 'mercadopago' && (
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Comisión MP %</label>
-                <input type="number" value={interesPct} onChange={e => setInteresPct(e.target.value)} min="0" max="100" step="0.01"
-                  className="flex-1 border border-blue-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white" placeholder="0" />
-              </div>
-              {Number(interesPct) > 0 && (
-                <div className="text-xs text-blue-600 space-y-0.5">
-                  <div className="flex justify-between"><span>Base:</span><span className="font-semibold">{fmt(totalBase)}</span></div>
-                  <div className="flex justify-between"><span>+ Recargo MP ({interesPct}%):</span><span className="font-semibold text-blue-700">+ {fmt(interesMonto)}</span></div>
-                  <div className="flex justify-between border-t border-blue-200 pt-1 mt-1"><span className="font-bold">Total a cobrar:</span><span className="font-bold text-blue-800">{fmt(total)}</span></div>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="flex justify-between items-center">
-            <span className="text-gray-500 text-sm">Total</span>
-            <span className="text-xl font-bold text-gray-900">{fmt(total)}</span>
           </div>
-          <button onClick={confirmarVenta} disabled={carrito.length === 0 || processing}
-            className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-gray-200 disabled:text-gray-400 text-white py-3 rounded-xl font-semibold text-sm transition-colors">
-            {processing ? 'Procesando...' : 'Confirmar venta'}
-          </button>
+
+          {/* Métodos de pago + descuento */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div>
+              <p className="text-xs text-gray-500 mb-1.5">Medio de pago</p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {[
+                  { id: 'efectivo', label: 'Efectivo' },
+                  { id: 'débito', label: 'Débito' },
+                  { id: 'crédito', label: 'Crédito' },
+                  { id: 'mercadopago', label: 'Mercado Pago' },
+                ].map(m => (
+                  <button key={m.id} onClick={() => { setMetodoPago(m.id); setInteresPct(''); setCuotas(1) }}
+                    className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${metodoPago === m.id ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {metodoPago === 'crédito' && (
+              <div className="bg-orange-50 border border-orange-100 rounded-xl p-3 space-y-2">
+                <div>
+                  <p className="text-xs text-orange-700 font-medium mb-1.5">Cuotas</p>
+                  <div className="flex gap-1 flex-wrap">
+                    {[1, 3, 6, 12, 18, 24].map(c => (
+                      <button key={c} onClick={() => setCuotas(c)}
+                        className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${cuotas === c ? 'bg-orange-500 text-white' : 'bg-white text-orange-700 border border-orange-200 hover:bg-orange-100'}`}>
+                        {c === 1 ? 'Cont.' : `${c}c`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-orange-700 font-medium whitespace-nowrap">Interés %</label>
+                  <input type="number" value={interesPct} onChange={e => setInteresPct(e.target.value)} min="0" max="100" step="0.1"
+                    className="flex-1 border border-orange-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white" placeholder="0" />
+                </div>
+                {Number(interesPct) > 0 && (
+                  <div className="text-xs text-orange-600 space-y-0.5">
+                    <div className="flex justify-between"><span>Base:</span><span className="font-semibold">{fmt(totalBase)}</span></div>
+                    <div className="flex justify-between"><span>+ Interés ({interesPct}%):</span><span className="font-semibold text-orange-700">+ {fmt(interesMonto)}</span></div>
+                    <div className="flex justify-between border-t border-orange-200 pt-1 mt-1"><span className="font-bold">Total:</span><span className="font-bold text-orange-800">{fmt(total)}</span></div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {metodoPago === 'mercadopago' && (
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Comisión MP %</label>
+                  <input type="number" value={interesPct} onChange={e => setInteresPct(e.target.value)} min="0" max="100" step="0.01"
+                    className="flex-1 border border-blue-200 rounded-lg px-2 py-1 text-xs text-center focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white" placeholder="0" />
+                </div>
+                {Number(interesPct) > 0 && (
+                  <div className="text-xs text-blue-600 space-y-0.5">
+                    <div className="flex justify-between"><span>Base:</span><span className="font-semibold">{fmt(totalBase)}</span></div>
+                    <div className="flex justify-between"><span>+ Recargo MP ({interesPct}%):</span><span className="font-semibold text-blue-700">+ {fmt(interesMonto)}</span></div>
+                    <div className="flex justify-between border-t border-blue-200 pt-1 mt-1"><span className="font-bold">Total:</span><span className="font-bold text-blue-800">{fmt(total)}</span></div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500 whitespace-nowrap">Descuento %</label>
+              <input type="number" value={descuentoPct} onChange={e => setDescuentoPct(e.target.value)} min="0" max="100" step="1"
+                className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-primary-400" placeholder="0" />
+            </div>
+            {Number(descuentoPct) > 0 && (
+              <div className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 space-y-0.5">
+                <div className="flex justify-between"><span>Base:</span><span className="font-medium">{fmt(totalBase)}</span></div>
+                <div className="flex justify-between text-green-600"><span>- Descuento ({descuentoPct}%):</span><span className="font-semibold">- {fmt(descuentoMonto)}</span></div>
+                {tieneInteres && interesMonto > 0 && <div className="flex justify-between text-orange-600"><span>+ Recargo ({interesPct}%):</span><span className="font-semibold">+ {fmt(interesMonto)}</span></div>}
+              </div>
+            )}
+          </div>
+
+          {/* Total + botón */}
+          <div className="p-4 border-t border-gray-100 space-y-3 flex-shrink-0">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500 text-sm font-medium">Total</span>
+              <span className="text-2xl font-bold text-gray-900">{fmt(total)}</span>
+            </div>
+            <button onClick={confirmarVenta} disabled={carrito.length === 0 || processing}
+              className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-gray-200 disabled:text-gray-400 text-white py-3 rounded-xl font-semibold text-sm transition-colors">
+              {processing ? 'Procesando...' : 'Confirmar venta'}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* ── Modal confirmación / variantes (código de barras) ── */}
+      {/* ── Modal confirmación / variantes ── */}
       {confirmModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl">
@@ -565,9 +589,7 @@ export default function POS() {
                   <div>
                     <p className="font-semibold text-gray-900 text-sm">{p.nombre}</p>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Talla {p.talla}
-                      {p.color && ` · ${p.color}`}
-                      {' · '}Stock: {p.stock}
+                      Talla {p.talla}{p.color && ` · ${p.color}`}{' · '}Stock: {p.stock}
                       {p.stock <= 0 && <span className="text-red-400"> · Sin stock</span>}
                     </p>
                   </div>
