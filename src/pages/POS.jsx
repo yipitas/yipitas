@@ -4,7 +4,7 @@ import { supabase, supabaseAdmin } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner'
 import {
-  Search, Plus, Minus, Trash2, ShoppingCart, User, X, Check, Printer, Barcode, Wallet,
+  Search, Plus, Minus, Trash2, ShoppingCart, User, X, Check, Printer, Barcode, Wallet, Repeat,
 } from 'lucide-react'
 
 const hoyISO = () => {
@@ -33,6 +33,12 @@ export default function POS() {
   const [scanToast, setScanToast] = useState(null)
   const [confirmModal, setConfirmModal] = useState(null) // { productos[], titulo }
   const [lastScan, setLastScan] = useState('')
+  const [showCambioModal, setShowCambioModal] = useState(false)
+  const [cambioEgreso, setCambioEgreso] = useState(null) // producto que se lleva el cliente
+  const [cambioIngreso, setCambioIngreso] = useState(null) // producto que devuelve el cliente
+  const [cambioEgresoSearch, setCambioEgresoSearch] = useState('')
+  const [cambioIngresoSearch, setCambioIngresoSearch] = useState('')
+  const [procesandoCambio, setProcesandoCambio] = useState(false)
   const searchRef = useRef(null)
   const scanInputRef = useRef(null)
   const toastTimer = useRef(null)
@@ -104,6 +110,7 @@ export default function POS() {
   const resultadosBusqueda = search.length >= 1
     ? productos.filter(p =>
         p.nombre.toLowerCase().includes(search.toLowerCase()) ||
+        p.codigo?.toLowerCase().includes(search.toLowerCase()) ||
         p.categoria?.toLowerCase().includes(search.toLowerCase()) ||
         p.color?.toLowerCase().includes(search.toLowerCase()) ||
         p.talla?.toString().toLowerCase().includes(search.toLowerCase())
@@ -201,6 +208,57 @@ export default function POS() {
 
   const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n)
 
+  // ── Cambio de producto ─────────────────────────────────────────
+  function filtrarProductosCambio(q) {
+    if (!q) return []
+    const ql = q.toLowerCase()
+    return productos.filter(p =>
+      p.nombre.toLowerCase().includes(ql) ||
+      p.codigo?.toLowerCase().includes(ql) ||
+      p.talla?.toString().toLowerCase().includes(ql)
+    ).slice(0, 15)
+  }
+
+  function abrirCambioModal() {
+    setCambioEgreso(null)
+    setCambioIngreso(null)
+    setCambioEgresoSearch('')
+    setCambioIngresoSearch('')
+    setShowCambioModal(true)
+  }
+
+  const diferenciaCambio = (cambioEgreso?.precio || 0) - (cambioIngreso?.precio || 0)
+
+  async function confirmarCambio() {
+    if (!cambioEgreso && !cambioIngreso) return
+    if (cambioEgreso && cambioEgreso.stock <= 0) { showToast('error', `${cambioEgreso.nombre} sin stock`); return }
+    setProcesandoCambio(true)
+
+    if (cambioEgreso) {
+      await supabase.from('productos').update({ stock: cambioEgreso.stock - 1 }).eq('id', cambioEgreso.id)
+    }
+    if (cambioIngreso) {
+      await supabase.from('productos').update({ stock: cambioIngreso.stock + 1 }).eq('id', cambioIngreso.id)
+    }
+
+    if (diferenciaCambio !== 0 && cajaAbierta?.id) {
+      const partes = []
+      if (cambioEgreso) partes.push(`entrega ${cambioEgreso.nombre} (${cambioEgreso.talla})`)
+      if (cambioIngreso) partes.push(`recibe ${cambioIngreso.nombre} (${cambioIngreso.talla})`)
+      await supabaseAdmin.from('caja_movimientos').insert({
+        caja_id: cajaAbierta.id,
+        tipo: diferenciaCambio > 0 ? 'ingreso' : 'egreso',
+        concepto: `Cambio: ${partes.join(' / ')}`,
+        monto: Math.abs(diferenciaCambio),
+      })
+    }
+
+    showToast('ok', 'Cambio registrado')
+    setShowCambioModal(false)
+    await loadProductos()
+    setProcesandoCambio(false)
+  }
+
   // ── Sin caja ──────────────────────────────────────────────────
   if (cajaAbierta === null) return (
     <div className="flex items-center justify-center h-full">
@@ -263,7 +321,7 @@ export default function POS() {
   )
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full relative overflow-y-auto lg:overflow-hidden">
       {/* Toast */}
       {scanToast && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 transition-all ${
@@ -274,10 +332,17 @@ export default function POS() {
         </div>
       )}
 
-      {/* ── Panel superior 30%: escaneo + búsqueda + productos ── */}
-      <div className="h-[30%] flex flex-col overflow-hidden border-b border-gray-200">
-        <div className="px-4 pt-3 pb-2 flex items-center gap-3 flex-shrink-0">
+      {/* ── Panel superior: escaneo + búsqueda + productos ── */}
+      <div className="flex flex-col border-b border-gray-200 flex-shrink-0 lg:h-[30%] lg:overflow-hidden">
+        <div className="px-4 pt-3 pb-2 flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3 flex-shrink-0">
           <h2 className="text-base font-bold text-gray-900 flex-shrink-0">Punto de Venta</h2>
+
+          <button
+            onClick={abrirCambioModal}
+            className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-primary-600 border border-gray-300 hover:border-primary-300 rounded-lg px-2.5 py-2 transition-colors flex-shrink-0"
+          >
+            <Repeat className="w-3.5 h-3.5" />Cambio
+          </button>
 
           {/* Barra de escaneo */}
           <div className="flex items-center gap-2 bg-primary-50 border-2 border-primary-200 rounded-xl px-3 py-2 focus-within:border-primary-400 transition-colors flex-1">
@@ -292,12 +357,12 @@ export default function POS() {
           </div>
 
           {/* Búsqueda por nombre con dropdown */}
-          <div className="relative w-64 flex-shrink-0">
+          <div className="relative w-full lg:w-64 flex-shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 z-10" />
             <input
               ref={searchRef}
               type="text"
-              placeholder="Buscar por nombre, talla, color..."
+              placeholder="Buscar por nombre, código, talla, color..."
               value={search}
               onChange={e => { setSearch(e.target.value); setShowSearchDrop(true) }}
               onFocus={() => setShowSearchDrop(true)}
@@ -329,6 +394,7 @@ export default function POS() {
                               Talla {p.talla}{p.color && ` · ${p.color}`}{' · '}Stock: {p.stock}
                               {sinStock && <span className="text-red-400 font-medium"> · Sin stock</span>}
                             </p>
+                            {p.codigo && <p className="text-[11px] text-gray-400 font-mono mt-0.5">Cód: {p.codigo}</p>}
                           </div>
                           <div className="ml-3 text-right flex-shrink-0">
                             <p className="text-sm font-bold text-primary-600">{fmt(p.precio)}</p>
@@ -345,7 +411,7 @@ export default function POS() {
         </div>
 
         {/* Grid de productos */}
-        <div className="overflow-y-auto flex-1 px-4 pb-2 grid grid-cols-5 xl:grid-cols-7 gap-2 content-start">
+        <div className="overflow-y-auto px-4 pb-2 grid gap-2 content-start grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 max-h-56 lg:max-h-none lg:flex-1">
           {(search.length === 0 ? productos : resultadosBusqueda).map(p => {
             const sinStock = p.stock <= 0
             return (
@@ -386,16 +452,16 @@ export default function POS() {
         </div>
       </div>
 
-      {/* ── Panel inferior 70%: carrito ── */}
-      <div className="flex-1 flex overflow-hidden bg-white">
+      {/* ── Panel inferior: carrito ── */}
+      <div className="flex flex-col bg-white lg:flex-1 lg:flex-row lg:overflow-hidden">
 
         {/* Items del carrito */}
-        <div className="flex-1 flex flex-col border-r border-gray-200 overflow-hidden">
+        <div className="flex flex-col border-b lg:border-b-0 lg:border-r border-gray-200 lg:flex-1 lg:overflow-hidden">
           <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2 flex-shrink-0">
             <ShoppingCart className="w-4 h-4 text-gray-500" />
             <span className="font-semibold text-gray-900 text-sm">Carrito ({carrito.length})</span>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div className="p-4 space-y-2 lg:flex-1 lg:overflow-y-auto">
             {carrito.length === 0 ? (
               <div className="text-center text-gray-400 text-sm py-10">
                 <ShoppingCart className="w-10 h-10 mx-auto mb-2 opacity-30" />
@@ -407,6 +473,12 @@ export default function POS() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-gray-900 truncate">{item.nombre}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{item.talla}{item.color && ` · ${item.color}`}</p>
+                  {item.codigo && (
+                    <p className="text-[11px] text-gray-400 mt-0.5 flex items-center gap-1">
+                      <Barcode className="w-3 h-3 text-gray-300" />
+                      <span className="font-mono">{item.codigo}</span>
+                    </p>
+                  )}
                   <p className="text-base font-bold text-primary-600 mt-0.5">{fmt(item.precio)}</p>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -431,7 +503,7 @@ export default function POS() {
         </div>
 
         {/* Panel de checkout */}
-        <div className="w-1/2 flex flex-col border-l border-gray-100 flex-shrink-0">
+        <div className="w-full lg:w-1/2 flex flex-col lg:border-l border-gray-100 flex-shrink-0">
           {/* Cliente */}
           <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0">
             <div className="relative">
@@ -470,7 +542,7 @@ export default function POS() {
           </div>
 
           {/* Métodos de pago + descuento */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="p-4 space-y-3 lg:flex-1 lg:overflow-y-auto">
             <div>
               <p className="text-xs text-gray-500 mb-1.5">Medio de pago</p>
               <div className="grid grid-cols-2 gap-1.5">
@@ -548,7 +620,7 @@ export default function POS() {
           </div>
 
           {/* Total + botón */}
-          <div className="p-4 border-t border-gray-100 space-y-3 flex-shrink-0">
+          <div className="p-4 border-t border-gray-100 space-y-3 flex-shrink-0 sticky bottom-0 bg-white lg:static">
             <div className="flex justify-between items-center">
               <span className="text-gray-500 text-sm font-medium">Total</span>
               <span className="text-2xl font-bold text-gray-900">{fmt(total)}</span>
@@ -601,6 +673,118 @@ export default function POS() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Modal cambio de producto ── */}
+      {showCambioModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900">Cambio de producto</h3>
+              <button onClick={() => setShowCambioModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <CambioBuscador
+                label="Se lleva (nuevo producto)"
+                search={cambioEgresoSearch}
+                onSearchChange={setCambioEgresoSearch}
+                seleccionado={cambioEgreso}
+                onSeleccionar={p => { setCambioEgreso(p); setCambioEgresoSearch('') }}
+                onQuitar={() => setCambioEgreso(null)}
+                resultados={filtrarProductosCambio(cambioEgresoSearch)}
+                fmt={fmt}
+              />
+              <CambioBuscador
+                label="Devuelve (producto usado)"
+                search={cambioIngresoSearch}
+                onSearchChange={setCambioIngresoSearch}
+                seleccionado={cambioIngreso}
+                onSeleccionar={p => { setCambioIngreso(p); setCambioIngresoSearch('') }}
+                onQuitar={() => setCambioIngreso(null)}
+                resultados={filtrarProductosCambio(cambioIngresoSearch)}
+                fmt={fmt}
+              />
+
+              {(cambioEgreso || cambioIngreso) && (
+                <div className={`rounded-xl p-4 text-sm ${
+                  diferenciaCambio > 0 ? 'bg-red-50' : diferenciaCambio < 0 ? 'bg-green-50' : 'bg-gray-50'
+                }`}>
+                  <div className="flex justify-between text-gray-500"><span>Se lleva</span><span>{fmt(cambioEgreso?.precio || 0)}</span></div>
+                  <div className="flex justify-between text-gray-500"><span>Devuelve</span><span>- {fmt(cambioIngreso?.precio || 0)}</span></div>
+                  <div className="flex justify-between font-bold text-base border-t border-gray-200 pt-2 mt-2">
+                    <span>Diferencia</span>
+                    <span className={diferenciaCambio > 0 ? 'text-red-600' : diferenciaCambio < 0 ? 'text-green-600' : 'text-gray-900'}>
+                      {diferenciaCambio > 0 ? 'Cobrar ' : diferenciaCambio < 0 ? 'Devolver ' : ''}{fmt(Math.abs(diferenciaCambio))}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={confirmarCambio}
+                disabled={(!cambioEgreso && !cambioIngreso) || procesandoCambio}
+                className="w-full bg-primary-600 hover:bg-primary-700 disabled:bg-gray-200 disabled:text-gray-400 text-white py-3 rounded-xl font-semibold text-sm transition-colors"
+              >
+                {procesandoCambio ? 'Procesando...' : 'Confirmar cambio'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CambioBuscador({ label, search, onSearchChange, seleccionado, onSeleccionar, onQuitar, resultados, fmt }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{label}</p>
+      {seleccionado ? (
+        <div className="flex items-center justify-between px-3 py-2.5 border border-gray-200 rounded-xl bg-gray-50">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-900 truncate">{seleccionado.nombre}</p>
+            <p className="text-xs text-gray-400">
+              Talla {seleccionado.talla}{seleccionado.color && ` · ${seleccionado.color}`}
+              {seleccionado.codigo && ` · Cód: ${seleccionado.codigo}`}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className="text-sm font-bold text-primary-600">{fmt(seleccionado.precio)}</span>
+            <button onClick={onQuitar} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+          </div>
+        </div>
+      ) : (
+        <div className="relative">
+          <input
+            type="text"
+            value={search}
+            onChange={e => onSearchChange(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && resultados.length === 1) onSeleccionar(resultados[0]) }}
+            placeholder="Código de barras o nombre..."
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+          />
+          {search.length >= 1 && (
+            <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-xl z-10 mt-1 max-h-48 overflow-y-auto">
+              {resultados.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-3">Sin resultados</p>
+              ) : resultados.map(p => (
+                <button
+                  key={p.id}
+                  onMouseDown={() => onSeleccionar(p)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 border-b border-gray-50 last:border-0 text-left hover:bg-primary-50 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{p.nombre}</p>
+                    <p className="text-xs text-gray-400">Talla {p.talla}{p.color && ` · ${p.color}`}</p>
+                  </div>
+                  <span className="text-sm font-bold text-primary-600 flex-shrink-0 ml-2">{fmt(p.precio)}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

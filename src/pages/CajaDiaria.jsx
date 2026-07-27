@@ -127,7 +127,17 @@ export default function CajaDiaria() {
   async function loadDetalleHistorial(cajaHist) {
     setLoadingDetalle(true)
     const desde = cajaHist.hora_apertura
-    const hasta = cajaHist.hora_cierre || new Date().toISOString()
+    // Si la caja nunca se cerró, acotamos el rango a la apertura de la
+    // siguiente caja (o "ahora" si es la última). Sin esto, todas las cajas
+    // abiertas usaban "ahora" como tope y traían las mismas ventas → totales iguales.
+    let hasta = cajaHist.hora_cierre
+    if (!hasta) {
+      const siguienteApertura = historial
+        .map(c => c.hora_apertura)
+        .filter(h => h && h > cajaHist.hora_apertura)
+        .sort()[0]
+      hasta = siguienteApertura || new Date().toISOString()
+    }
     const [ventasRes, movRes] = await Promise.all([
       supabase.from('ventas')
         .select('*, clientes(nombre), venta_items(cantidad, precio_unitario, productos(nombre, talla))')
@@ -177,9 +187,56 @@ export default function CajaDiaria() {
   const saldoFinalEsperado = (caja?.saldo_inicial || 0) + efectivoTotal + ingresosManual - egresosManual
 
   // ── Acciones ────────────────────────────────────────────────────
+  // Cierra automáticamente cualquier caja que haya quedado abierta.
+  // El tope de cada una es la apertura de la siguiente (o "ahora" para la última),
+  // así los rangos no se superponen y el efectivo esperado se calcula bien.
+  async function cerrarCajasAbiertas() {
+    const { data: abiertas } = await supabaseAdmin
+      .from('cajas')
+      .select('*')
+      .eq('estado', 'abierta')
+      .order('hora_apertura', { ascending: true })
+    if (!abiertas || abiertas.length === 0) return
+
+    const ahora = new Date().toISOString()
+    const aperturas = abiertas.map(c => c.hora_apertura).filter(Boolean).sort()
+
+    for (const c of abiertas) {
+      const hasta = aperturas.find(a => a > c.hora_apertura) || ahora
+
+      const { data: vts } = await supabase
+        .from('ventas')
+        .select('total, metodo_pago')
+        .eq('metodo_pago', 'efectivo')
+        .gte('created_at', c.hora_apertura)
+        .lte('created_at', hasta)
+      const efectivo = sum(vts || [], 'total')
+
+      const { data: movs } = await supabaseAdmin
+        .from('caja_movimientos')
+        .select('tipo, monto')
+        .eq('caja_id', c.id)
+      const ingresos = sum((movs || []).filter(m => m.tipo === 'ingreso'), 'monto')
+      const egresos = sum((movs || []).filter(m => m.tipo === 'egreso'), 'monto')
+
+      const esperado = (Number(c.saldo_inicial) || 0) + efectivo + ingresos - egresos
+
+      await supabaseAdmin.from('cajas').update({
+        estado: 'cerrada',
+        hora_cierre: hasta,
+        saldo_final_esperado: esperado,
+        // Cierre automático: nadie contó el efectivo, no registramos real ni diferencia.
+        saldo_final_real: null,
+        diferencia: null,
+      }).eq('id', c.id)
+    }
+  }
+
   async function abrirCaja() {
     if (!saldoInicial && saldoInicial !== '0') return
     setAbriendo(true)
+    // Cerramos la caja anterior antes de abrir la nueva (solo una caja abierta a la vez)
+    await cerrarCajasAbiertas()
     const { data, error } = await supabaseAdmin.from('cajas').insert({
       fecha: hoyISO(),
       user_id: user.id,
@@ -551,9 +608,11 @@ export default function CajaDiaria() {
                         </p>
                       </div>
                       <div className="text-right">
-                        {c.saldo_final_real != null && (
+                        {c.saldo_final_real != null ? (
                           <p className="text-sm font-bold text-gray-900">{fmt(c.saldo_final_real)}</p>
-                        )}
+                        ) : c.saldo_final_esperado != null ? (
+                          <p className="text-sm font-bold text-gray-500">{fmt(c.saldo_final_esperado)}<span className="text-xs font-normal text-gray-400"> esp.</span></p>
+                        ) : null}
                         {c.diferencia != null && (
                           <p className={`text-xs font-semibold ${c.diferencia >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                             {c.diferencia >= 0 ? '+' : ''}{fmt(c.diferencia)}
