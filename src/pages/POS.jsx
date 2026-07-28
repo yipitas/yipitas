@@ -688,16 +688,6 @@ export default function POS() {
             </div>
             <div className="p-5 space-y-4">
               <CambioBuscador
-                label="Se lleva (nuevo producto)"
-                search={cambioEgresoSearch}
-                onSearchChange={setCambioEgresoSearch}
-                seleccionado={cambioEgreso}
-                onSeleccionar={p => { setCambioEgreso(p); setCambioEgresoSearch('') }}
-                onQuitar={() => setCambioEgreso(null)}
-                resultados={filtrarProductosCambio(cambioEgresoSearch)}
-                fmt={fmt}
-              />
-              <CambioBuscador
                 label="Devuelve (producto usado)"
                 search={cambioIngresoSearch}
                 onSearchChange={setCambioIngresoSearch}
@@ -707,13 +697,23 @@ export default function POS() {
                 resultados={filtrarProductosCambio(cambioIngresoSearch)}
                 fmt={fmt}
               />
+              <CambioBuscador
+                label="Se lleva (nuevo producto)"
+                search={cambioEgresoSearch}
+                onSearchChange={setCambioEgresoSearch}
+                seleccionado={cambioEgreso}
+                onSeleccionar={p => { setCambioEgreso(p); setCambioEgresoSearch('') }}
+                onQuitar={() => setCambioEgreso(null)}
+                resultados={filtrarProductosCambio(cambioEgresoSearch)}
+                fmt={fmt}
+              />
 
               {(cambioEgreso || cambioIngreso) && (
                 <div className={`rounded-xl p-4 text-sm ${
                   diferenciaCambio > 0 ? 'bg-red-50' : diferenciaCambio < 0 ? 'bg-green-50' : 'bg-gray-50'
                 }`}>
-                  <div className="flex justify-between text-gray-500"><span>Se lleva</span><span>{fmt(cambioEgreso?.precio || 0)}</span></div>
                   <div className="flex justify-between text-gray-500"><span>Devuelve</span><span>- {fmt(cambioIngreso?.precio || 0)}</span></div>
+                  <div className="flex justify-between text-gray-500"><span>Se lleva</span><span>{fmt(cambioEgreso?.precio || 0)}</span></div>
                   <div className="flex justify-between font-bold text-base border-t border-gray-200 pt-2 mt-2">
                     <span>Diferencia</span>
                     <span className={diferenciaCambio > 0 ? 'text-red-600' : diferenciaCambio < 0 ? 'text-green-600' : 'text-gray-900'}>
@@ -773,7 +773,8 @@ function CambioBuscador({ label, search, onSearchChange, seleccionado, onSelecci
               ) : resultados.map(p => (
                 <button
                   key={p.id}
-                  onMouseDown={() => onSeleccionar(p)}
+                  type="button"
+                  onClick={() => onSeleccionar(p)}
                   className="w-full flex items-center justify-between px-3 py-2.5 border-b border-gray-50 last:border-0 text-left hover:bg-primary-50 transition-colors"
                 >
                   <div className="min-w-0">
