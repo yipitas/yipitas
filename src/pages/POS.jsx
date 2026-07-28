@@ -229,6 +229,16 @@ export default function POS() {
 
   const diferenciaCambio = (cambioEgreso?.precio || 0) - (cambioIngreso?.precio || 0)
 
+  useEffect(() => {
+    if (showCambioModal) {
+      console.log('[DEBUG cambio]', {
+        cambioEgreso: cambioEgreso ? { nombre: cambioEgreso.nombre, precio: cambioEgreso.precio, tipo: typeof cambioEgreso.precio } : null,
+        cambioIngreso: cambioIngreso ? { nombre: cambioIngreso.nombre, precio: cambioIngreso.precio, tipo: typeof cambioIngreso.precio } : null,
+        diferenciaCambio,
+      })
+    }
+  }, [showCambioModal, cambioEgreso, cambioIngreso])
+
   async function confirmarCambio() {
     if (!cambioEgreso && !cambioIngreso) return
     if (cambioEgreso && cambioEgreso.stock <= 0) { showToast('error', `${cambioEgreso.nombre} sin stock`); return }
