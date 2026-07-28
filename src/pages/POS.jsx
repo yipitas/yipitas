@@ -212,10 +212,11 @@ export default function POS() {
   function filtrarProductosCambio(q) {
     if (!q) return []
     const ql = q.toLowerCase()
+    const exacto = productos.filter(p => p.codigo?.toLowerCase() === ql)
+    if (exacto.length > 0) return exacto
     return productos.filter(p =>
       p.nombre.toLowerCase().includes(ql) ||
-      p.codigo?.toLowerCase().includes(ql) ||
-      p.talla?.toString().toLowerCase().includes(ql)
+      p.talla?.toString().toLowerCase() === ql
     ).slice(0, 15)
   }
 
